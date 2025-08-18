@@ -3,29 +3,48 @@
 
 import os
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from dateutil.tz import gettz
 from collections import defaultdict, Counter
-import pandas as pd
-import matplotlib.pyplot as plt
 from pathlib import Path
+import math
 
-# -------- Settings --------
+import numpy as np
+import pandas as pd
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+# ---------------- Settings ----------------
 TIMEZONE = gettz(os.environ.get("TZ", "Asia/Seoul"))
-DAYS_FOR_BAR = 30               # 최근 30일 바 차트
-WEEKS_FOR_HEATMAP = 53          # 53주(약 1년) 잔디
-FILE_EXTS = {".md", ".mdx"}     # Markdown만 집계
+FILE_EXTS = {".md", ".mdx"}        # 집계 대상
+DAYS_FOR_BAR = 30                   # 공부시간 차트 기간
+WEEKS_FOR_HEATMAP = 53              # 잔디 기간(약 1년)
 OUTPUT_DIR = Path("charts")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# -------- Git helpers --------
+# GitHub 잔디 팔레트
+GRASS_COLORS = ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"]
+
+mpl.rcParams.update({
+    "figure.dpi": 144,
+    "font.size": 11,
+    "axes.grid": True,
+    "grid.color": "#e5e7eb",
+    "grid.linewidth": 0.8,
+    "axes.edgecolor": "#e5e7eb",
+    "axes.titleweight": "semibold",
+    "axes.labelcolor": "#111827",
+    "text.color": "#111827",
+    "xtick.color": "#374151",
+    "ytick.color": "#374151",
+})
+
+# ---------------- Git helpers ----------------
 def run(cmd: list[str]) -> str:
     return subprocess.check_output(cmd, text=True).strip()
 
 def list_commits():
-    """
-    Return list of (hash, committed_iso8601) for all non-merge commits.
-    """
     fmt = "%H %cI"
     out = run(["git", "log", "--no-merges", f"--pretty=format:{fmt}"])
     rows = []
@@ -38,17 +57,16 @@ def list_commits():
     return rows
 
 def commit_touched_markdown(commit_hash: str) -> bool:
-    """
-    Check if commit touches any *.md / *.mdx file.
-    """
     out = run(["git", "show", "--name-only", "--pretty=format:", commit_hash])
     for path in out.splitlines():
+        if not path.strip():
+            continue
         _, ext = os.path.splitext(path.strip())
         if ext.lower() in FILE_EXTS:
             return True
     return False
 
-# -------- Collect per-day commits (KST) --------
+# ---------------- Collect data ----------------
 commits = list_commits()
 md_commits = []
 for h, iso in commits:
@@ -57,102 +75,151 @@ for h, iso in commits:
         dt_local = dt_utc.astimezone(TIMEZONE)
         md_commits.append((h, dt_local))
 
-# group by local date
+# 일자별 첫/마지막 커밋, 커밋 수
 by_date = defaultdict(list)
 for _, dt in md_commits:
-    d = dt.date()
-    by_date[d].append(dt)
+    by_date[dt.date()].append(dt)
 
-# compute study duration per day (first to last commit)
-# If only one commit, duration = 0 minutes (or set a floor if you prefer)
 daily_duration_min = {}
 daily_commit_count = {}
 for d, times in by_date.items():
     times.sort()
-    duration = (times[-1] - times[0]).total_seconds() / 60.0
-    daily_duration_min[d] = max(0, round(duration))
+    dur = (times[-1] - times[0]).total_seconds() / 60.0
+    daily_duration_min[d] = max(0, round(dur))
     daily_commit_count[d] = len(times)
 
-# -------- Build DataFrame for last N days --------
+# ---------------- Study time dataframe ----------------
 today_local = datetime.now(TIMEZONE).date()
 start_bar = today_local - timedelta(days=DAYS_FOR_BAR - 1)
 dates = pd.date_range(start_bar, today_local, freq="D")
-bar_df = pd.DataFrame({
-    "date": dates.date,
-})
+bar_df = pd.DataFrame({"date": dates.date})
 bar_df["study_min"] = bar_df["date"].map(lambda d: daily_duration_min.get(d, 0))
 bar_df["commits"]   = bar_df["date"].map(lambda d: daily_commit_count.get(d, 0))
 
-# -------- Plot 1: Study time bar (SVG) --------
-plt.figure(figsize=(12, 4))
-plt.bar(bar_df["date"].astype(str), bar_df["study_min"])
-plt.xticks(rotation=60)
-plt.title(f"Daily Study Time (first~last Markdown commit, KST) – last {DAYS_FOR_BAR} days")
-plt.xlabel("Date")
-plt.ylabel("Minutes")
-plt.tight_layout()
-plt.savefig(OUTPUT_DIR / "study_time.svg", format="svg")
-plt.close()
+# 부드러운 곡선을 위한 이동평균(7일)
+def smooth(series, window=7):
+    if len(series) == 0:
+        return series
+    return pd.Series(series).rolling(window=window, min_periods=1, center=True).mean().values
 
-# -------- Prepare heatmap data (52–53 weeks like GitHub) --------
-# Build date list from oldest Sunday to today (GitHub starts weeks on Sunday)
-# Find start date = (today - 7*WEEKS) aligned to Sunday
-today_dt = datetime.now(TIMEZONE).date()
-start_heat = today_dt - timedelta(weeks=WEEKS_FOR_HEATMAP)
-# Align to Sunday
-start_heat -= timedelta(days=(start_heat.weekday() + 1) % 7)
+bar_df["study_min_smooth"] = smooth(bar_df["study_min"], window=7)
 
-all_days = [start_heat + timedelta(days=i) for i in range((today_dt - start_heat).days + 1)]
+# ---------------- Plot 1: Pretty study time ----------------
+fig, ax1 = plt.subplots(figsize=(12, 4.8))
+# 주말 영역 음영
+for i, d in enumerate(bar_df["date"]):
+    if pd.Timestamp(d).weekday() >= 5:
+        ax1.axvspan(i - 0.5, i + 0.5, color="#f9fafb", zorder=0)
+
+# 막대(분) + 부드러운 라인(분)
+bar = ax1.bar(range(len(bar_df)), bar_df["study_min"], width=0.8, color="#93c5fd", edgecolor="#60a5fa", linewidth=0.5, label="Study minutes")
+ax1.plot(range(len(bar_df)), bar_df["study_min_smooth"], linewidth=2.2, color="#1d4ed8", label="7d avg (min)")
+
+ax1.set_title(f"Daily Study Time (first~last Markdown commit, KST) – last {DAYS_FOR_BAR} days")
+ax1.set_ylabel("Minutes")
+
+# 보조축: 커밋 수 (점/선)
+ax2 = ax1.twinx()
+ax2.plot(range(len(bar_df)), bar_df["commits"], marker="o", markersize=3.5, linewidth=1.4, color="#10b981", label="Commits")
+ax2.set_ylabel("Commits")
+
+# x축 라벨: 날짜 간격 줄이기
+tick_idx = np.linspace(0, len(bar_df)-1, num=min(10, len(bar_df))).astype(int)
+ax1.set_xticks(tick_idx)
+ax1.set_xticklabels([pd.Timestamp(bar_df["date"].iloc[i]).strftime("%m/%d") for i in tick_idx], rotation=0)
+
+# 범례 깔끔하게 묶기
+lines1, labels1 = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax1.legend(lines1 + lines2, labels1 + labels2, frameon=False, loc="upper left", ncols=3)
+
+fig.tight_layout()
+fig.savefig(OUTPUT_DIR / "study_time.svg", format="svg")
+plt.close(fig)
+
+# ---------------- Heatmap data ----------------
+# 시작일(일요일 정렬) ~ 오늘
+start_heat = today_local - timedelta(weeks=WEEKS_FOR_HEATMAP)
+start_heat -= timedelta(days=(start_heat.weekday() + 1) % 7)  # Sunday align
+all_days = [start_heat + timedelta(days=i) for i in range((today_local - start_heat).days + 1)]
 counts = Counter({d: daily_commit_count.get(d, 0) for d in all_days})
 
-# Heatmap grid: rows=7 (Sun..Sat), cols=weeks
 cols = (len(all_days) + 6) // 7
 grid = [[0]*cols for _ in range(7)]
 for idx, day in enumerate(all_days):
     col = idx // 7
-    row = day.weekday() + 1  # Monday=1..Sunday=0; fix to Sunday=0
-    row = row % 7
+    row = (day.weekday() + 1) % 7  # Sunday=0
     grid[row][col] = counts[day]
 
-# Normalize to 0..4 "levels"
-flat = [c for col in range(cols) for c in [grid[r][col] for r in range(7)]]
+# 등급 기준: 최댓값 기반 대신 분위수(0, .25, .5, .75)로 잘라서 outlier 영향 축소
+flat = [grid[r][c] for c in range(cols) for r in range(7)]
 mx = max(flat) if flat else 0
-def level(c):
-    if mx == 0: return 0
-    q = c / mx
-    if q == 0: return 0
-    elif q <= 0.25: return 1
-    elif q <= 0.5: return 2
-    elif q <= 0.75: return 3
-    else: return 4
+if mx == 0:
+    thresholds = [0, 1, 2, 3]  # 아무 커밋 없을 때
+else:
+    q1, q2, q3 = np.quantile([v for v in flat if v > 0], [0.25, 0.5, 0.75]) if any(v>0 for v in flat) else (1,2,3)
+    thresholds = [q1, q2, q3]
 
-levels = [[level(grid[r][c]) for c in range(cols)] for r in range(7)]
+def to_level(v: int) -> int:
+    if v <= 0: return 0
+    if v <= thresholds[0]: return 1
+    if v <= thresholds[1]: return 2
+    if v <= thresholds[2]: return 3
+    return 4
 
-# -------- Plot 2: Contributions heatmap (SVG) --------
-# Simple square grid using matplotlib
-cell = 0.4
-w = cell * cols + 2
-h = cell * 7 + 1.2
-plt.figure(figsize=(w, h))
+levels = [[to_level(grid[r][c]) for c in range(cols)] for r in range(7)]
+
+# ---------------- Plot 2: GitHub-like green grass ----------------
+cell = 0.42
+pad_x = 1.5
+pad_y = 1.2
+fig_w = cell * cols + pad_x
+fig_h = cell * 7 + pad_y
+fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+ax.set_axis_off()
+
+# 셀 그리기 (라운드 느낌: 얇은 테두리 + 약간의 간격)
 for r in range(7):
     for c in range(cols):
-        v = levels[r][c]
-        # draw as gray scale; GitHub-like would be greens, but we avoid explicit colors per instructions
-        plt.gca().add_patch(plt.Rectangle((c*cell, (6-r)*cell), cell*cell, cell*cell, linewidth=0.2,
-                                          edgecolor="black",
-                                          facecolor=str(0.9 - 0.18*v)))
-plt.xlim(0, cols*cell)
-plt.ylim(0, 7*cell)
-plt.axis("off")
-plt.title("Markdown Commit Heatmap (last ~52 weeks, KST)")
-plt.tight_layout()
-plt.savefig(OUTPUT_DIR / "contributions.svg", format="svg")
-plt.close()
+        lv = levels[r][c]
+        color = GRASS_COLORS[lv]
+        rect = Rectangle((c*cell, (6-r)*cell), cell*0.95, cell*0.95,
+                         linewidth=0.25, edgecolor="#d1d5db", facecolor=color)
+        ax.add_patch(rect)
 
-# -------- Tiny summary TSV (optional) --------
+# 월 라벨: 각 월의 첫 번째 열 위에 표시
+month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+month_seen = set()
+for idx, day in enumerate(all_days):
+    if day.day == 1:
+        c = idx // 7
+        if c not in month_seen:
+            month_seen.add(c)
+            ax.text(c*cell, 7*cell + 0.15, month_names[day.month-1], fontsize=10, va="bottom", ha="left", color="#111827")
+
+# 요일 라벨(간소화: Mon, Wed, Fri)
+for r, label in [(6-1, "Mon"), (6-3, "Wed"), (6-5, "Fri")]:
+    ax.text(-0.6, r*cell + cell*0.2, label, fontsize=9, ha="right", va="center", color="#6b7280")
+
+# 제목
+ax.text(0, 7*cell + 0.6, "Markdown Commit Heatmap (last ~52 weeks, KST)", fontsize=12, fontweight="semibold", ha="left")
+
+# 범례(색상 샘플)
+legend_x = cols*cell - 4*cell
+ax.text(legend_x - 0.4, -0.9, "Less", fontsize=9, color="#6b7280")
+for i, col in enumerate(GRASS_COLORS):
+    rect = Rectangle((legend_x + i*cell*0.65, -1.05), cell*0.55, cell*0.55, facecolor=col, edgecolor="#d1d5db", linewidth=0.25)
+    ax.add_patch(rect)
+ax.text(legend_x + 4*cell*0.65 + 0.1, -0.9, "More", fontsize=9, color="#6b7280")
+
+plt.tight_layout()
+fig.savefig(OUTPUT_DIR / "contributions.svg", format="svg", bbox_inches="tight")
+plt.close(fig)
+
+# ---------------- Summary file ----------------
 with open(OUTPUT_DIR / "summary.tsv", "w", encoding="utf-8") as f:
     print("date\tstudy_minutes\tcommits", file=f)
     for _, row in bar_df.iterrows():
         print(f"{row['date']}\t{row['study_min']}\t{row['commits']}", file=f)
 
-print("Charts generated at:", OUTPUT_DIR.resolve())
+print("Pretty charts generated at:", OUTPUT_DIR.resolve())
