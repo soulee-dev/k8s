@@ -48,3 +48,44 @@ Docker는 CRI를 직접 지원하지 않았음. Kubernetes는 이를 해결하�
 
 - **crictl**: CRI 호환 런타임(containerd, CRI-O 등)을 다룰 수 있는 CLI
 - 디버깅용으로만 사용 권장 (일반 실행/운영은 kubelet이 알아서 함)
+
+## etcd
+
+### 1. 개념
+- **etcd**: Key-Value 기반의 분산 데이터베이스
+- Kubernetes에서 클러스터 상태(노드, Pod, Config, Secret 등)를 저장하는 **중앙 저장소**
+- **RAFT 합의 알고리즘** 기반으로 안정성과 일관성 보장
+
+### 2. 주요 특징
+- **Key-Value DB**: 단순한 구조지만 빠른 읽기/쓰기 지원
+- **RAFT 알고리즘 (v2.0\~)**: 분산 환경에서 합의 보장, 초당 약 10k 쓰기 가능
+- **API 버전**:
+  - v2: 예전 방식 (`etcdctl set/get`)
+  - v3: 현재 기본 (`etcdctl put/get`)
+  - 전환 예시:
+
+    ```shell
+    ETCDCTL_API=3 etcdctl version
+    ```
+- **포트**: 기본적으로 `2379` 포트 사용
+- **배포**: `kubeadm`으로 클러스터 설치 시 자동으로 etcd 구성
+
+
+### 3. etcd 저장 데이터 (Kubernetes 기준)
+- **Cluster Metadata**
+  - nodes, pods, configs, secrets
+  - accounts, roles, role bindings
+  - 그 외 모든 리소스 상태 정보
+
+### 4. 주요 명령어
+
+```shell
+# v2
+etcdctl set key1 value1
+etcdctl get key1
+
+# v3
+etcdctl put key1 value1
+etcdctl get key1
+```
+
