@@ -1,0 +1,49 @@
+name: Study Metrics
+
+on:
+  schedule:
+    # 매일 00:05 KST ~= 15:05 UTC (전날 15:05 UTC)
+    - cron: "5 15 * * *"
+  workflow_dispatch: {}
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Seoul
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # 전체 히스토리 필요
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas matplotlib pytz python-dateutil
+
+      - name: Generate charts
+        run: |
+          python scripts/generate_study_charts.py
+
+      - name: Commit & push charts
+        run: |
+          if [ -n "$(git status --porcelain charts || true)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add charts
+            git commit -m "chore(charts): update study time & contributions charts [skip ci]"
+            git push
+          else
+            echo "No chart changes."
+          fi

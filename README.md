@@ -17,3 +17,8 @@ Course에 있는 모든 탭을 열고, 아래 코드를 개발자 콘솔에서 �
 ```js
 document.querySelectorAll('li input[type=checkbox]:checked').forEach((box, i) => setTimeout(() => box.click(), i * 50));
 ```
+
+## Daily Metrics
+
+![Study Time](charts/study_time.svg)
+![Contributions](charts/contributions.svg)
