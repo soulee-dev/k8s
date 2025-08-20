@@ -289,3 +289,100 @@ kubectl delete pod webapp
 # redis Pod 편집
 kubectl edit pod redis
 ```
+
+## ReplicaSet
+
+ReplicaSet은 **Kubernetes에서 Pod의 개수를 일정하게 유지하기 위한 리소스 오브젝트**다.
+즉, 사용자가 지정한 수만큼 Pod가 항상 실행되도록 보장하는 역할을 한다.
+
+### 주요 개념
+
+- **Pod 복제 관리**
+  특정 Pod의 개수가 부족하면 새로운 Pod를 생성하고, 많으면 불필요한 Pod를 삭제해서 **원하는 개수(Desired State)** 를 유지한다.
+- **선언적 방식**
+  `spec.replicas`에 원하는 Pod 개수를 선언하면, ReplicaSet이 지속적으로 실제 상태를 모니터링하고 조정한다.
+- **Selector 기반 관리**
+  `spec.selector`로 관리할 Pod를 선택한다. 해당 Selector와 일치하는 Pod들을 감시하면서 개수를 조정한다.
+- **Self-healing**
+  어떤 이유로 Pod가 삭제되거나 노드 장애가 발생하더라도 ReplicaSet이 자동으로 새로운 Pod를 재생성한다.
+
+### 구조 (YAML 예시)
+
+```yaml
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: nginx-rs
+spec:
+  replicas: 3   # 항상 유지할 Pod 개수
+  selector:
+    matchLabels:
+      app: nginx
+  template:     # Pod 템플릿 (ReplicaSet이 관리할 Pod의 정의)
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+```
+
+- **replicas**: 유지할 Pod 개수 (Desired count)
+- **selector**: 어떤 Pod를 관리할지 지정 (label 기반)
+- **template**: Pod 생성 시 사용할 템플릿 정의
+
+### ReplicaSet vs ReplicationController
+- **ReplicationController(RC)** 는 ReplicaSet 이전 세대 리소스
+- ReplicaSet은 **더 강력한 selector (matchExpressions 등)** 를 지원
+- 현재는 **ReplicaSet이 RC를 대체**한 상태
+
+## ReplicaSet Scaling
+
+ReplicaSet은 Pod의 개수를 보장하기 때문에, **scale 조정**을 통해 실행되는 Pod의 수를 늘리거나 줄일 수 있다.
+
+###  `kubectl scale` 명령어
+**scale 조정**을 통해 실행되는 Pod의 수를 늘리거나 줄일 수 있다.
+
+```sh
+kubectl scale replicaset <rs-name> --replicas=<개수>
+```
+
+### 막간으로 알아보는 명령어 차이점
+
+| 명령어         | 리소스 없을 때 | 리소스 있을 때       | 특징                   | 사용 목적       |
+| ----------- | -------- | -------------- | -------------------- | ----------- |
+| **create**  | 새로 생성    | 에러 발생          | 단순 생성, idempotent 아님 | 처음 리소스 만들 때 |
+| **apply**   | 새로 생성    | 변경 사항만 반영      | 선언적 관리, 가장 많이 사용     | 운영 환경 관리용   |
+| **replace** | 새로 생성 가능 | 기존 리소스 삭제 후 생성 | 순간적 중단 가능, 완전 교체     | 리소스 갈아치울 때  |
+
+### Practice Test - ReplicaSets
+```sh
+# Pod 목록 확인
+kubectl get pods
+
+# ReplicaSet 목록 확인
+kubectl get replicasets
+
+# 특정 ReplicaSet 상세 조회
+kubectl describe replicaset new-replica-set
+
+# 모든 Pod 상세 조회
+kubectl describe pods
+
+# 특정 Pod 삭제
+kubectl delete pod new-replica-set-689gj
+
+# 특정 ReplicaSet 삭제
+kubectl delete replicaset replicaset-1
+
+# ReplicaSet 편집
+kubectl edit replicaset new-replica-set
+# ⚠️ edit 후에는 기존 Pod을 모두 지워줘야 함
+# (ReplicaSet은 Pod 템플릿을 자동 업데이트하지 않음)
+
+# ReplicaSet 스케일링 (replica 수 변경)
+kubectl scale replicaset new-replica-set --replicas=5
+```
+
+
