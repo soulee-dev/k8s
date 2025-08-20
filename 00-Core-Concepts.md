@@ -244,8 +244,48 @@ etcdctl get key1
 4. **명령어**
 ```sh
 kubectl run nginx --image=nginx
+kubectl get pods
+kubectl describe pod {pod}
 ```
 
 ```sh
+
+5. **YAML**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp-pod
+spec:
+  containers:
+  - name: myapp
+    image: nginx
+    ports:
+    - containerPort: 80
+```
+
+```sh
+kubectl create -f pod-definition.yml
+```
+Pod-Spec을 정의한 파일을 `kubectl create`를 통해 Pod를 생성할수 있다.
+
+### Practice Test - Pods
+```sh
+# Pod 개수 확인
 kubectl get pods
+
+# nginx 이미지로 Pod 생성
+kubectl run nginx --image=nginx
+
+# 다시 Pod 개수 확인
+kubectl get pods
+
+# newpods-* Pod의 이미지 확인
+kubectl describe pod newpods-cp9kj
+
+# webapp Pod 삭제
+kubectl delete pod webapp
+
+# redis Pod 편집
+kubectl edit pod redis
 ```
