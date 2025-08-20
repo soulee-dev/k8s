@@ -187,3 +187,65 @@ etcdctl get key1
 - **스케줄링 단위**는 **Pod** (ReplicaSet, Deployment는 결국 Pod 단위로 처리됨)
 - **플러그인 구조**: Scheduling Framework를 통해 Custom Scheduler 구현 가능
 - **다중 스케줄러 지원**: 기본 kube-scheduler 외에도, 사용자 정의 스케줄러를 함께 사용할 수 있음 (Pod spec에 `schedulerName` 지정)
+
+## kubelet
+
+### 개념
+
+- **Kubelet**은 Kubernetes 클러스터의 각 **노드(Node)** 위에서 동작하는 핵심 에이전트임.
+- PodSpec(파드의 스펙)을 받아 해당 노드에서 파드와 컨테이너가 정상적으로 실행되도록 보장하는 역할을 함.
+- Control Plane의 **kube-apiserver**와 통신하며, 해당 노드 상태와 파드 상태를 지속적으로 보고함.
+
+## Kube-proxy
+### 개념
+- **kube-proxy**는 Kubernetes 클러스터의 각 노드에서 실행되는 네트워크 컴포넌트임.
+- Service 오브젝트를 구현하기 위해 **클러스터 내부 트래픽 라우팅**을 담당함.
+- 쉽게 말해, **“Service → Pod” 트래픽이 잘 연결되도록 보장하는 네트워크 프록시**.
+
+### 주요 역할
+
+1. **Service 가상 IP 관리**
+- Kubernetes Service는 고정된 ClusterIP를 갖지만, 실제 뒷단은 여러 Pod로 이루어짐.
+- kube-proxy는 이 가상 IP로 들어온 요청을 실제 Pod로 전달해줌 (Load Balancing).
+
+2. **트래픽 라우팅**
+- iptables 또는 IPVS를 사용하여 서비스 트래픽을 적절한 파드로 분산.
+- Round Robin, 랜덤 등 기본 로드밸런싱 수행.
+
+3. **노드 간 통신 보장**
+- 클러스터 내부 노드들이 Pod/Service 간에 통신할 수 있도록 네트워크 규칙을 관리.
+
+## Pod
+
+### 개념
+
+- **Pod**는 Kubernetes에서 가장 작은 배포 단위이자 실행 단위.
+- 하나 이상의 **컨테이너(Container)** 를 묶어서 **동일한 네트워크 네임스페이스(IP, 포트)** 와 **스토리지 볼륨**을 공유하는 단위.
+- Pod 내부의 컨테이너들은 **로컬호스트(localhost)** 로 통신 가능.
+- Pod는 보통 하나의 애플리케이션을 감싸지만, **사이드카 패턴**처럼 보조 컨테이너를 함께 두기도 함.
+
+### 특징
+
+1. **공유 리소스**
+- **네트워크**: Pod 안 컨테이너들은 같은 IP를 공유.
+- **스토리지**: Pod 안 컨테이너는 같은 Volume을 공유 가능.
+- **환경 설정**: 같은 PodSpec으로 설정된 리소스 제한, Secret, ConfigMap 등을 공유.
+
+2. **생명 주기**
+- Pod는 자체적으로 유지되지 않고, 필요 시 **Controller** (예: Deployment, ReplicaSet, StatefulSet)가 관리.
+- Pod 자체는 **휘발성(temporary)** 이라서 죽으면 그대로 사라짐.
+- Controller가 정의된 스펙을 보고 새로운 Pod를 생성해서 보장.
+
+3. **Pod 사용 패턴**
+- **단일 컨테이너 Pod**: 가장 일반적. 하나의 앱만 실행.
+- **멀티 컨테이너 Pod**: 보조 역할을 하는 사이드카(Container)와 함께 동작.
+  - 예: Nginx(메인) + 로그 수집기(사이드카).
+
+4. **명령어**
+```sh
+kubectl run nginx --image=nginx
+```
+
+```sh
+kubectl get pods
+```
