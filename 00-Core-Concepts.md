@@ -385,4 +385,40 @@ kubectl edit replicaset new-replica-set
 kubectl scale replicaset new-replica-set --replicas=5
 ```
 
+## Deployments
 
+### 개념
+
+* **Deployment**는 Kubernetes에서 애플리케이션을 배포하고 관리하기 위한 상위 개념의 리소스임
+* ReplicaSet을 자동으로 생성하고 관리하며, Pod의 선언적(Declarative) 업데이트를 제공함
+* 무중단 배포(rolling update), 이전 상태로의 롤백(rollback) 등 배포 전략을 쉽게 적용할 수 있음
+
+### 주요 기능
+
+* **Pod/ReplicaSet 관리**
+
+  * 원하는 수의 Pod를 항상 유지 (self-healing)
+  * ReplicaSet을 생성/교체하여 애플리케이션 버전을 관리
+* **Rolling Update**
+
+  * 새로운 버전으로 점진적으로 교체 → 서비스 중단 최소화
+* **Rollback**
+
+  * 문제가 생기면 이전 버전으로 손쉽게 되돌릴 수 있음
+* **Declarative Update**
+
+  * yaml(manifest) 파일에 원하는 상태를 선언하면, Kubernetes가 실제 상태를 그에 맞게 조정
+
+### 동작 방식
+
+1. 사용자가 Deployment 객체를 생성하면, Kubernetes가 해당 Deployment에 맞는 **ReplicaSet**을 생성
+2. ReplicaSet은 정의된 수만큼의 Pod을 생성하고 유지
+3. Deployment를 수정하면 새로운 ReplicaSet이 생성되고, **Rolling Update** 방식으로 기존 ReplicaSet의 Pod을 점진적으로 교체
+4. 문제가 생기면 Deployment는 자동으로 **Rollback** 가능
+
+### Practice Tests - Deployments
+```sh
+kubectl get all
+
+kubectl describe deployment frontend-deployment
+```
