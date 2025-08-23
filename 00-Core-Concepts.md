@@ -594,7 +594,7 @@ kubectl get pod blue --all-namespaces
 
 ---
 
-## 자주 쓰는 Imperative 명령어
+### 자주 쓰는 Imperative 명령어
 
 ```sh
 # Pod 생성
@@ -616,3 +616,30 @@ kubectl scale deployment nginx --replicas=5
 kubectl set image deployment nginx nginx=nginx:1.18
 ```
 
+### Tips & Tricks
+```sh
+# yaml 파일로 생성
+kubectl create deployment --image=nginx nginx --dry-run=client -o yaml
+```
+
+### Practice Test - Imperative Commands
+```sh
+kubectl run nginx-pod --image=nginx:alpine
+
+# dry-run으로 yaml 파일 생성
+kubectl run redis --image=redis:alpine --dry-run=client -oyaml > redis-pod.yaml
+# 혹은
+kubectl run redis -l tier=db --image=redis:alpine
+
+kubectl expose pod redis --port=6379 --name=redis-service --type=ClusterIP
+
+kubectl create deployment webapp --image=kodekloud/webapp-color --replicas=3
+
+kubectl run custom-nginx --imag=nginx --port=8080
+
+kubectl create namespace dev-ns
+
+kubectl create deployment redis --namespace=dev-ns --image=redis
+
+kubectl run httpd --image=httpd:alpine --port=80 --expose
+```
