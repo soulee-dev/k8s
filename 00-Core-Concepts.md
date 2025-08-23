@@ -535,3 +535,84 @@ kubectl run redis --image=redis --namespace=finance
 kubectl get pods --all-namespaces | grep blue
 kubectl get pod blue --all-namespaces
 ```
+
+## Imperative vs Declarative (명령형 vs 선언형)
+
+### Imperative
+
+* 관리자가 **명령형으로 직접 지시**하는 방식
+* `kubectl` 명령어로 리소스를 바로 생성, 수정, 삭제
+* 현재 상태를 "명령"으로 바로 반영
+* 예시
+
+  ```sh
+  kubectl run nginx --image=nginx
+  kubectl create deployment myapp --image=nginx
+  kubectl delete pod mypod
+  ```
+
+### Declarative
+
+* 관리자가 **원하는 최종 상태를 정의(YAML/JSON)**
+* Kubernetes가 현재 상태(Current State)를 최종 상태(Desired State)에 맞게 조정
+* `kubectl apply -f` 명령어를 사용해 선언적 관리
+* 협업, 버전 관리, 재현성에 유리
+* 예시
+
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: myapp
+  spec:
+    replicas: 3
+    selector:
+      matchLabels:
+        app: myapp
+    template:
+      metadata:
+        labels:
+          app: myapp
+      spec:
+        containers:
+        - name: nginx
+          image: nginx
+  ```
+
+  ```sh
+  kubectl apply -f deployment.yaml
+  ```
+
+### 비교
+
+| 구분  | Imperative                                        | Declarative        |
+| --- | ------------------------------------------------- | ------------------ |
+| 방식  | 명령으로 즉시 실행                                        | 최종 상태를 정의          |
+| 사용법 | `kubectl run`, `kubectl create`, `kubectl delete` | `kubectl apply -f` |
+| 장점  | 빠르고 단순                                            | 재현성, 협업, 버전 관리     |
+| 단점  | 기록/재현 어려움                                         | 초기 세팅 번거로움         |
+
+---
+
+## 자주 쓰는 Imperative 명령어
+
+```sh
+# Pod 생성
+kubectl run nginx --image=nginx 
+
+# Deployment 생성
+kubectl create deployment nginx --image=nginx 
+
+# Deployment를 Service로 노출 (ClusterIP 기본)
+kubectl expose deployment nginx --port=80
+
+# Deployment 편집
+kubectl edit deployment nginx
+
+# Deployment 스케일 조정 (replicas=5)
+kubectl scale deployment nginx --replicas=5
+
+# Deployment의 컨테이너 이미지 업데이트
+kubectl set image deployment nginx nginx=nginx:1.18
+```
+
