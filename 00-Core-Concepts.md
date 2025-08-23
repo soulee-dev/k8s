@@ -422,3 +422,116 @@ kubectl get all
 
 kubectl describe deployment frontend-deployment
 ```
+
+## Kubernetes Services
+
+Service는 Pod들을 네트워크 상에서 안정적으로 접근할 수 있도록 해주는 추상화 객체임.
+
+Pod는 동적으로 생성·삭제되기 때문에 IP가 고정되지 않음 → 이 문제를 해결하기 위해 Service가 고정된 접근점(가상 IP, DNS 이름)을 제공함.
+
+### 주요 개념
+
+* Pod 집합에 대한 **추상화된 네트워크 엔드포인트**
+* **Label Selector**를 사용해 어떤 Pod들을 대상으로 할지 정의함
+* 클러스터 내부/외부에서 Pod에 안정적으로 접근 가능
+* 각 Service는 ClusterIP(가상 IP)를 가짐
+
+### Service 타입
+
+* **ClusterIP (기본값)**
+  * 클러스터 내부에서만 접근 가능한 가상 IP를 부여함
+  * 외부에서는 접근 불가
+
+* **NodePort**
+  * 각 노드의 특정 포트를 열어서 외부 접근을 허용함
+  * `NodeIP:NodePort` 형태로 접근
+
+* **LoadBalancer**
+  * 클라우드 환경에서 외부 로드밸런서를 자동 생성
+  * 외부에서 접근 가능한 공인 IP 제공
+  * CSP나 LoadBalancer를 사용할수 있돌고 설정된 환경에서만 사용 가능
+
+* **ExternalName**
+  * 클러스터 외부의 DNS 이름을 그대로 서비스로 매핑
+  * 실제 외부 서비스와 연결할 때 사용
+
+### 동작 방식
+
+1. 사용자가 Service에 요청 →
+2. kube-proxy가 요청을 받아 적절한 Pod으로 트래픽을 라우팅
+3. Pod이 교체되거나 IP가 바뀌어도 Service IP는 고정되어 안정적인 접근 가능
+
+### Practice Test - Services
+```sh
+kubectl get services
+
+kubectl describe service kubernetes
+```
+
+## Namespace
+- Kubernetes의 Namespace는 클러스터 내부의 리소스를 논리적으로 구분하기 위한 가상 공간
+- 하나의 클러스터를 여러 개의 가상 클러스터처럼 나누어 사용할 수 있게 해줌
+
+### 특징
+* 클러스터 내 리소스를 논리적으로 분리함 → 팀/환경별(개발/운영 등)로 자원을 격리 가능
+* 리소스 이름은 Namespace 단위로 고유해야 함 (즉, 같은 이름의 Pod도 다른 Namespace에서 생성 가능)
+* 기본적으로 `default`, `kube-system`, `kube-public` 등의 Namespace가 제공
+* 네트워크적으로 완전히 차단되는 것은 아니고, **논리적 분리** (네트워크 정책으로 격리 가능)
+* RBAC(Role-Based Access Control), ResourceQuota 등과 결합해 팀/사용자별 리소스 관리에 활용
+
+### 기본 Namespace 종류
+* **default**: 별도 지정하지 않으면 생성되는 리소스가 속하는 기본 Namespace
+* **kube-system**: Kubernetes 시스템 컴포넌트(Pod, DNS 등)가 동작하는 공간
+* **kube-public**: 모든 사용자가 접근할 수 있는 Namespace, 주로 클러스터 정보 공개용
+
+### 자주 쓰는 명령어
+
+* 모든 Namespace 조회
+
+  ```sh
+  kubectl get namespaces
+  ```
+* 특정 Namespace에 속한 Pod 조회
+
+  ```sh
+  kubectl get pods -n <namespace-name>
+  ```
+* 리소스를 생성할 때 Namespace 지정
+
+  ```sh
+  kubectl create deployment nginx --image=nginx -n dev
+  ```
+* 현재 Context의 기본 Namespace 변경
+
+  ```sh
+  kubectl config set-context --current --namespace=dev
+  ```
+
+### 활용 예시
+
+* **개발/테스트/운영 환경 분리**: dev, stage, prod 네임스페이스 생성
+* **팀 단위 격리**: frontend, backend, data-team 등으로 구분
+* **리소스 관리**: 팀별로 CPU/메모리 할당량을 `ResourceQuota`로 제한
+
+### 접속 규칙
+
+  * 같은 Namespace 내: `db-service`
+  * 다른 Namespace 접근 시: `db-service.dev.svc.cluster.local`
+
+### Practice Test - Namespaces
+
+```sh
+# namespace 개수 확인
+kubectl get namespaces | wc -l
+kubectl get namespaces --no-headers | wc -l   # header 제외
+
+# 특정 namespace의 pod 조회
+kubectl get pods --namespace=research
+
+# 특정 namespace에 pod 생성
+kubectl run redis --image=redis --namespace=finance
+
+# 모든 namespace에서 특정 pod 찾기
+kubectl get pods --all-namespaces | grep blue
+kubectl get pod blue --all-namespaces
+```
