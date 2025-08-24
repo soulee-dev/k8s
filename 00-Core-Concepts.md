@@ -643,3 +643,40 @@ kubectl create deployment redis --namespace=dev-ns --image=redis
 
 kubectl run httpd --image=httpd:alpine --port=80 --expose
 ```
+
+## kubectl apply 동작 방식 (3-way merge)
+
+| 구분                             | 설명                                                                                              | 예시                               |
+| ------------------------------ | ----------------------------------------------------------------------------------------------- | -------------------------------- |
+| **Local file**                 | 사용자가 적용하려는 매니페스트(YAML/JSON)                                                                     | `replicas: 3, image: nginx:1.18` |
+| **Last applied configuration** | 이전에 `kubectl apply` 했을 때 저장된 설정 (`kubectl.kubernetes.io/last-applied-configuration` annotation) | `replicas: 2, image: nginx:1.17` |
+| **Live object configuration**  | 현재 클러스터에 존재하는 리소스의 실시간 상태                                                                       | `replicas: 5, image: nginx:1.17` |
+
+### 동작 방식
+
+* `apply` 실행 시 세 값을 비교하여 **3-way merge** 수행
+* Local ↔ Last 차이를 반영
+* Last ↔ Live 비교하여 사용자가 변경하지 않은 필드는 유지
+* 최종적으로 변경된 부분만 Live object에 업데이트
+
+
+### 왜 Imperative와 Declarative를 섞으면 안 되는가
+
+#### Declarative (`kubectl apply`)
+
+* YAML 파일을 **진리의 원천(Single Source of Truth)** 으로 삼음
+* 상태를 파일에 기록해 두고, 이를 기준으로 클러스터 상태를 유지
+* 변경 사항이 `last-applied-configuration` 에 기록됨
+
+#### Imperative (`kubectl edit`, `kubectl scale`, `kubectl set image` 등)
+
+* 클러스터 상태를 직접 수정
+* 하지만 `last-applied-configuration` 에는 반영되지 않음
+
+#### 문제점
+
+* Declarative(`apply`)는 Local ↔ Last ↔ Live 비교를 하는데, Imperative 변경은 Last에 기록되지 않음
+* 그 결과, 다음 `apply` 시
+
+  * Local과 Last 차이가 없다고 판단 → Imperative로 바꾼 값이 덮어써짐
+  * 즉, **수정 내용이 사라지거나 의도치 않게 롤백됨**
