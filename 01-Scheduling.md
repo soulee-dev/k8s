@@ -216,3 +216,37 @@ kubectl taint nodes node01 spray=mortein:NoSchedule
 
 kubectl taint nodes controlplane node-role.kubnernetes.io/control-plane:NoSchedule-
 ```
+
+# Node Selectors
+
+## 개념
+
+* `nodeSelector`는 파드가 특정 노드에 스케줄링되도록 제한하는 가장 기본적인 방법임
+* 파드의 `spec.nodeSelector` 필드에 **key-value 형태의 라벨 조건**을 지정하면, 해당 라벨을 가진 노드에만 파드가 배치됨
+* 단순 매칭만 가능 (`=`, `!=` 같은 복잡 조건 불가)
+
+---
+
+## 동작 방식
+
+1. 노드에 라벨을 먼저 설정해야 함
+
+   ```sh
+   kubectl label nodes <노드명> disktype=ssd
+   ```
+2. 파드 YAML에서 nodeSelector 추가
+
+   ```yaml
+   apiVersion: v1
+   kind: Pod
+   metadata:
+     name: nginx-pod
+   spec:
+     containers:
+       - name: nginx
+         image: nginx
+     nodeSelector:
+       disktype: ssd
+   ```
+3. 스케줄러는 `disktype=ssd` 라벨이 붙은 노드 중 하나를 선택해 파드를 배치
+
