@@ -250,3 +250,96 @@ kubectl taint nodes controlplane node-role.kubnernetes.io/control-plane:NoSchedu
    ```
 3. 스케줄러는 `disktype=ssd` 라벨이 붙은 노드 중 하나를 선택해 파드를 배치
 
+# Node Affinity
+
+## 개념
+
+* Node Affinity는 **Pod를 특정 Node에 스케줄링하기 위한 규칙**임
+* `nodeSelector`의 확장된 기능으로, **더 풍부한 표현식**을 지원하고 **soft/hard 제약 조건**을 설정할 수 있음
+* `labels`를 기반으로 동작하며, Node가 가진 Label과 Pod가 요구하는 조건이 일치할 때 해당 Node에 스케줄링됨
+
+---
+
+## 종류
+
+### 1. `requiredDuringSchedulingIgnoredDuringExecution`
+
+* 반드시 조건을 만족해야 Pod가 Node에 배치됨 (hard requirement)
+* 조건이 만족되지 않으면 Pod는 스케줄되지 못함
+
+### 2. `preferredDuringSchedulingIgnoredDuringExecution`
+
+* 조건을 만족하는 Node에 우선 배치되지만, 조건을 만족하지 않아도 다른 Node에 배치 가능 (soft requirement)
+
+---
+
+## 특징
+
+* `IgnoredDuringExecution`은 실행 중에는 Node Label이 바뀌더라도 Pod는 그대로 실행됨
+* (추가 기능으로 향후 `requiredDuringExecution` 같은 타입이 도입될 수 있음 → 아직 일반적으로 사용되지 않음)
+
+---
+
+## 예시
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: affinity-pod
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:   # 하드 제약
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: disktype
+            operator: In
+            values:
+            - ssd
+      preferredDuringSchedulingIgnoredDuringExecution:  # 소프트 제약
+      - weight: 1
+        preference:
+          matchExpressions:
+          - key: region
+            operator: In
+            values:
+            - us-east-1
+  containers:
+  - name: nginx
+    image: nginx
+```
+
+* `requiredDuringSchedulingIgnoredDuringExecution`: `disktype=ssd` 라벨이 있는 노드에서만 실행
+* `preferredDuringSchedulingIgnoredDuringExecution`: 가능하다면 `region=us-east-1` 노드를 선호
+
+---
+
+## Operator 종류
+
+* `In`: 특정 값 중 하나와 일치해야 함
+* `NotIn`: 특정 값과 일치하지 않아야 함
+* `Exists`: 해당 key가 존재해야 함
+* `DoesNotExist`: 해당 key가 없어야 함
+* `Gt`, `Lt`: 숫자 비교
+
+---
+
+## Node Selector와 비교
+
+| 특징    | Node Selector   | Node Affinity                          |
+| ----- | --------------- | -------------------------------------- |
+| 표현식   | key=value 단순 매칭 | In, NotIn, Exists, Gt, Lt 등 다양한 표현식 지원 |
+| 조건 종류 | hard 조건만 가능     | hard + soft 조건 모두 가능                   |
+| 유연성   | 낮음              | 높음                                     |
+
+## Practice Test - Node Affinity
+```sh
+kubectl label node node01 color=blue
+
+kubectl create deployment blue --image=nginx --replicas=3
+
+kubectl describe node controlplane | grep -i taints
+
+kubectl get pods -o wide
+```
