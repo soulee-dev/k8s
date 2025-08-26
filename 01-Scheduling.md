@@ -343,3 +343,124 @@ kubectl describe node controlplane | grep -i taints
 
 kubectl get pods -o wide
 ```
+
+# Taints & Tolerations vs Node Affinity
+
+## Taints & Tolerations
+
+* 특정 Node에 **Pod가 배치되지 않도록 차단(taint)** + 예외 허용(toleration)
+* Node에 `taints` 설정
+* Pod Spec에 `tolerations` 설정
+* 원리
+
+  * Node에 taint가 있으면 해당 Node에 Pod는 기본적으로 스케줄링 불가
+  * Pod에 대응하는 toleration이 있으면 스케줄링 가능
+
+## Node Affinity
+
+* 특정 Node에 **Pod가 배치되도록 유도**하는 스케줄링 제약 조건
+* Pod Spec에 `affinity.nodeAffinity` 설정
+* 종류
+
+  * **requiredDuringSchedulingIgnoredDuringExecution**: 반드시 만족해야 배치 가능
+  * **preferredDuringSchedulingIgnoredDuringExecution**: 만족하면 우선 배치, 불만족 시 다른 Node에도 가능
+* 보통 `nodeSelector`의 확장된 형태 (연산자 In, NotIn, Exists 등 지원)
+
+## 차이점 비교
+
+| 구분    | Node Affinity                 | Taints & Tolerations         |
+| ----- | ----------------------------- | ---------------------------- |
+| 목적    | 특정 Node **로 보내기**             | 특정 Node **에서 막기**            |
+| 적용 위치 | Pod → Node로 조건 검사             | Node → Pod 차단, Pod이 예외적으로 허용 |
+| 제어 방식 | 스케줄러의 배치 정책                   | 스케줄러+Kubelet에서 실행 차단         |
+| 강제성   | required: 반드시, preferred: 우선권 | toleration 없으면 절대 불가         |
+
+## 같이 사용하는 경우
+
+* **Node Affinity**는 “가야 하는 곳”을 정의
+* **Taints & Tolerations**는 “못 가는 곳”을 정의
+
+예시 시나리오:
+
+1. 특정 Node에 `taint=nodeType=gpu:NoSchedule` 설정 → 일반 Pod은 배치 불가
+2. GPU 작업을 하는 Pod에 `tolerations` 추가 → GPU Node에도 배치 가능
+3. 동시에 Pod에 `nodeAffinity`를 `nodeType=gpu` 로 설정 → 스케줄러가 GPU Node를 반드시 선택
+   → 결과적으로 해당 Pod는 **GPU Node에만 스케줄링**됨
+
+즉,
+
+* Node Affinity는 **긍정적 선택(어디로 가야 하는가)**
+* Taints & Tolerations는 **부정적 필터링(어디는 못 간다, 허용해야만 가능)**
+* 두 개를 함께 쓰면 Pod 배치 제어를 더 정밀하게 할 수 있음
+
+# Resource Requirements, Limits, Quotas
+
+## Resource Requirements & Limits 개념
+
+Pod/Container는 CPU와 Memory 같은 리소스를 사용함.
+Kubernetes는 스케줄링, 성능 보장, 안정성을 위해 `requests`와 `limits` 두 가지 개념을 사용함.
+
+* **requests**
+
+  * 최소한 보장받을 리소스 양
+  * 스케줄러가 Pod를 어느 노드에 배치할지 결정할 때 기준으로 사용됨
+  * 예: `cpu: 500m`, `memory: 256Mi` → 노드에 이 정도 리소스 여유가 있어야 배치됨
+
+* **limits**
+
+  * 해당 컨테이너가 사용할 수 있는 최대치
+  * CPU: cgroups를 통해 제한. 초과 시 throttling (속도 조절) 발생
+  * Memory: cgroups를 통해 제한. 초과 시 OOM(Out Of Memory) Kill 발생
+
+---
+
+## CPU / Memory 조합별 동작
+
+| requests | limits | CPU 동작                                        | Memory 동작                                         | QoS Class                                              |
+| -------- | ------ | --------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------ |
+| 없음       | 없음     | 스케줄러 고려 없음, 남는 CPU 사용, 부족 시 쉽게 빼앗김            | 남는 메모리 사용, 부족 시 OOM Kill, 최저 우선순위                 | **BestEffort**                                         |
+| 없음       | 있음     | 스케줄러 고려 없음, 실행 시 limit까지 사용, throttling 발생 가능 | limit까지 사용, 초과 시 OOM Kill                         | **Burstable**                                          |
+| 있음       | 있음     | 스케줄러가 requests 기준으로 배치, 실행 시 limit까지 사용       | requests 기준으로 배치, limit까지 사용, 초과 시 OOM Kill       | requests == limits → **Guaranteed**, 아니면 **Burstable** |
+| 있음       | 없음     | requests 기준으로 배치, limit 없어 남는 CPU 전부 사용 가능    | requests 기준으로 배치, limit 없어 무제한 사용 가능, 노드 전체 영향 가능 | **Burstable**                                          |
+
+
+## QoS Class 정리
+
+Kubernetes는 Pod의 리소스 정의 방식에 따라 **QoS Class**를 부여함.
+
+| QoS Class  | 조건                                       |
+| ---------- | ---------------------------------------- |
+| Guaranteed | 모든 컨테이너가 CPU/Memory requests == limits   |
+| Burstable  | requests는 있으나 limits와 다름, 혹은 일부 컨테이너만 설정 |
+| BestEffort | 모든 컨테이너에 requests/limits 없음              |
+
+---
+
+## Resource Quotas
+
+* Namespace 단위에서 리소스 사용량을 제한하는 정책
+* 관리자가 여러 팀/서비스가 클러스터를 공유할 때 과도한 사용을 막기 위해 설정
+* 예시:
+
+```yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-a-quota
+  namespace: team-a
+spec:
+  hard:
+    requests.cpu: "4"       # team-a 전체에서 최소 요청 CPU 합은 4 core까지만
+    requests.memory: 8Gi
+    limits.cpu: "10"        # team-a 전체에서 최대 사용 CPU 합은 10 core
+    limits.memory: 16Gi
+    pods: "20"              # Pod 개수 제한
+```
+
+* Pod가 생성될 때 Namespace의 quota와 비교하여 넘으면 생성 거부됨
+* **LimitRange**와 함께 사용하면 각 Pod/Container가 기본 requests/limits를 강제 가능
+
+## Practice Test - Resource Limits
+```sh
+kubectl get pod elephant -oyaml > elephant.yml
+```
