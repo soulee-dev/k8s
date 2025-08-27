@@ -464,3 +464,200 @@ spec:
 ```sh
 kubectl get pod elephant -oyaml > elephant.yml
 ```
+
+# DaemonSet
+
+## 개념
+
+* DaemonSet은 **클러스터의 모든(또는 특정) 노드에서 반드시 1개씩 실행되는 Pod**을 보장하는 리소스임.
+* 주로 **노드 단위의 에이전트/데몬**을 배포할 때 사용됨.
+
+  * 예: 로그 수집기(Fluentd, Filebeat), 모니터링 에이전트(Node Exporter), 네트워크 관리(CNI 플러그인) 등.
+
+## 특징
+
+* 새로 노드가 추가되면 자동으로 Pod을 배포함.
+* 노드가 제거되면 해당 Pod도 같이 제거됨.
+* 기본적으로 각 노드에 하나씩 Pod이 생성되지만, `nodeSelector`, `nodeAffinity`, `taints/tolerations` 등을 설정해서 특정 노드에만 배포 가능.
+* Deployment처럼 ReplicaSet을 직접 생성하지 않고, **DaemonSet Controller**가 Pod을 직접 관리함.
+
+## 내부 동작
+
+* DaemonSet은 Pod 스케줄링을 **직접 하는 게 아니라**, 내부적으로는 **Default Scheduler**를 그대로 사용함.
+* 다만 DaemonSet Controller가 Pod을 만들 때, 해당 노드에서만 실행되도록 **NodeAffinity**를 자동으로 추가함.
+
+  * 예: `kubernetes.io/hostname=<노드명>` 형태의 **RequiredDuringSchedulingIgnoredDuringExecution** NodeAffinity 조건을 Pod에 붙임.
+* 그 결과, 스케줄러는 해당 노드에서만 Pod을 실행하도록 강제됨.
+
+## Practice Test - DaemonSets
+```sh
+kubectl get daemonsets --all-namespaces
+kubectl describe daemonset kube-proxy --namepsace=kube-system
+```
+
+# Static Pods
+
+## 개념
+
+* **Static Pod**는 **kube-apiserver를 거치지 않고**, 특정 노드의 **kubelet이 직접 생성하고 관리하는 Pod**임
+* 즉, Control Plane의 `kube-scheduler`가 개입하지 않고 노드 단위에서만 실행됨
+* 각 노드에 개별적으로 정의해야 하며, 자동으로 ReplicaSet, Deployment 같은 고수준 오브젝트로 관리되지 않음
+
+## 특징
+
+* Pod의 상태는 `kube-apiserver`에 **mirror pod** 형태로 등록됨 (조회 가능)
+
+  ```sh
+  kubectl get pods -n kube-system
+  ```
+
+  → 이때 mirror pod는 수정 불가, 단순히 kubelet이 생성한 static pod의 상태를 보여주는 것임
+* 노드가 죽으면 다른 노드에 스케줄링되지 않음 (일반 Pod와 다름)
+* `kubelet`이 PodSpec YAML 파일을 직접 읽어서 실행
+
+---
+
+## 경로 설정 방법
+
+Static Pod는 kubelet이 **`--pod-manifest-path`** 또는 **`--config`** 옵션으로 지정한 디렉토리에서 YAML 파일을 읽음
+
+1. **kubelet 실행 옵션 확인**
+
+   ```sh
+   ps -ef | grep kubelet
+   ```
+
+   * 예시:
+
+     ```
+     --pod-manifest-path=/etc/kubernetes/manifests
+     ```
+
+2. **해당 경로에 YAML 배치**
+
+   ```sh
+   ls /etc/kubernetes/manifests
+   ```
+
+   * 여기 있는 모든 `.yaml` 파일을 kubelet이 읽고 Pod 생성
+
+3. **예시: etcd static pod**
+
+   ```yaml
+   apiVersion: v1
+   kind: Pod
+   metadata:
+     name: etcd
+     namespace: kube-system
+   spec:
+     containers:
+     - name: etcd
+       image: k8s.gcr.io/etcd:3.4.13-0
+       command:
+       - etcd
+   ```
+
+   → `/etc/kubernetes/manifests/etcd.yaml` 에 저장 시 자동 실행
+
+---
+
+## Use Case
+
+1. **Control Plane 컴포넌트 실행**
+
+   * `kubeadm`으로 클러스터를 구성하면
+     `kube-apiserver`, `kube-scheduler`, `kube-controller-manager` 등은 **Static Pod** 형태로 `/etc/kubernetes/manifests`에 배치됨
+   * 이유: API Server 자체가 뜨지 않은 상태에서도 Control Plane을 구동할 수 있어야 하기 때문
+
+2. **Node 레벨 필수 데몬 실행**
+
+   * 클러스터 관리자가 특정 노드에서 반드시 실행해야 하는 Pod (예: 로깅/모니터링 에이전트)
+
+3. **API Server 다운 대비**
+
+   * Control Plane이 죽었더라도 kubelet이 static pod를 계속 실행하여 복구 가능
+
+## Practice Test - Static Pods
+```sh
+# Static pods는 pod 이름에 -<Node Name>이 붙는다
+kubectl get pods --all-namespaces
+
+# kubelet의 파라미터(설정)을 확인한다
+ps -aux | grep kubelet
+```
+
+# PriorityClass
+
+## 개념
+
+* **PriorityClass**는 Kubernetes에서 Pod의 우선순위를 정의하는 리소스임
+* 스케줄링 시 어떤 Pod을 먼저 배치할지 결정하거나, 리소스 부족 시 어떤 Pod을 먼저 축출(preemption)할지 결정하는 기준이 됨
+* 기본적으로 Pod은 `priorityClassName`을 명시하지 않으면 우선순위 0으로 설정됨
+
+## 동작 방식
+
+1. **PriorityClass 리소스 생성**
+
+   * `PriorityClass` 오브젝트를 만들어 우선순위 값(`value`)을 정의함
+   * 값이 클수록 우선순위가 높음
+   * `globalDefault`를 `true`로 설정하면, 우선순위가 지정되지 않은 Pod들이 이 클래스의 우선순위를 가짐
+
+2. **Pod과 연결**
+
+   * Pod spec에 `priorityClassName`을 명시
+   * 스케줄러는 우선순위가 높은 Pod을 먼저 스케줄링 시도함
+
+3. **Preemption (축출)**
+
+   * 클러스터에 리소스가 부족해 Pod을 스케줄링할 수 없는 경우, 스케줄러는 낮은 우선순위 Pod을 축출하여 높은 우선순위 Pod을 배치함
+
+## YAML 예시
+
+```yaml
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: high-priority
+value: 1000
+globalDefault: false
+description: "High priority pods"
+```
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: important-app
+spec:
+  priorityClassName: high-priority
+  containers:
+  - name: app
+    image: nginx
+```
+
+## PreemptionPolicy
+
+### 개념
+
+* **PreemptionPolicy**는 Kubernetes Pod의 우선순위 기반 축출(preemption) 동작을 제어하는 속성임
+* 기본적으로 Pod은 `PriorityClass`를 통해 우선순위를 갖고, 리소스 부족 시 스케줄러는 낮은 우선순위 Pod을 **축출(evict)** 해서 높은 우선순위 Pod을 배치함
+* 이때 Pod의 스펙에서 `preemptionPolicy`를 설정해 축출 정책을 세밀하게 제어할 수 있음
+
+### 설정 값
+
+* `PreemptLowerPriority` (기본값)
+
+  * 우선순위가 높은 Pod이 스케줄링될 수 없다면, 낮은 우선순위 Pod을 축출해서 자리를 마련함
+  * 일반적으로 PriorityClass와 함께 사용하는 기본 동작
+
+* `Never`
+
+  * 이 Pod은 다른 Pod을 축출하지 않음
+  * 즉, 이 Pod이 스케줄링될 때 리소스가 부족하더라도 기존 Pod들을 내쫓지 않고, 그냥 Pending 상태로 대기
+
+## Practice Test - Priority Classes
+```sh
+kubectl get priorityclass
+
+kubectl get pod critical-app -o yaml > critical-app.yaml
+```
