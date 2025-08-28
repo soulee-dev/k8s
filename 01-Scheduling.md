@@ -714,3 +714,97 @@ kubectl describe pod kube-scheduler-controlplane --namespace=kube-system
 ```
 
 # Configuring Scheduler Profiles
+
+Kubernetes 스케줄러는 **Profiles**를 통해 다양한 확장 지점을(Extension Points) 조합하여 Pod 스케줄링 방식을 커스터마이징할 수 있음.
+각 Profile은 **Queueing → Filtering → Scoring → Binding** 단계별로 Plugin들을 조합해 사용하며, 필요시 여러 Profile을 정의하여 워크로드 별로 다른 스케줄링 정책을 적용할 수도 있음.
+
+---
+
+## 주요 Extension Points
+
+### 1. Scheduling Queue
+
+* **PrioritySort**
+
+  * Pending Pod을 큐에서 꺼낼 때 정렬 기준을 정의
+  * 보통 Pod의 `PriorityClass` 기반으로 높은 우선순위 Pod이 먼저 스케줄링됨
+
+---
+
+### 2. Filtering
+
+* 노드 후보군을 걸러내는 단계
+* **NodeResourcesFit**
+
+  * Pod의 리소스 Requests가 노드의 가용 리소스에 맞는지 검사
+  * CPU/Memory 부족 시 해당 노드는 탈락
+
+---
+
+### 3. Scoring
+
+* 필터링을 통과한 노드들에 점수를 매겨 최적 노드를 선택하는 단계
+* **NodeResourcesFit**
+
+  * 자원 사용 효율성을 기반으로 점수 부여 (ex. 잔여 자원이 적절히 남도록)
+* **ImageLocality**
+
+  * Pod에 필요한 컨테이너 이미지를 이미 보유한 노드에 점수 부여
+  * 이미지 Pull 시간 단축 → 빠른 스케줄링 가능
+
+---
+
+### 4. Binding
+
+* 선택된 노드에 Pod을 실제로 바인딩
+* **DefaultBinder**
+
+  * Pod과 노드를 API Server에 바인딩하는 기본 플러그인
+
+---
+
+## Extension Points 전체 흐름
+
+스케줄러는 다음과 같은 확장 지점에서 Plugin을 사용할 수 있음
+
+* **QueueSort**: 어떤 Pod을 먼저 스케줄링할지 결정
+* **PreFilter**: Pod 스케줄링 전 사전 검사
+* **Filter**: 후보 노드 필터링
+* **PostFilter**: Preemption 수행 (우선순위 낮은 Pod 축출)
+* **PreScore**: Scoring 전 준비 단계
+* **Score**: 노드 점수 계산
+* **Reserve**: 선택된 노드 자원 임시 할당
+* **Permit**: Pod 실행 여부 승인/대기 결정
+* **PreBind**: 바인딩 전 사전 처리
+* **Bind**: Pod을 노드에 실제 바인딩
+* **PostBind**: 바인딩 완료 후 후처리
+
+---
+
+## Multiple Scheduler Profiles (v1.18+)
+
+* Kubernetes v1.18부터는 **하나의 kube-scheduler 프로세스 안에 여러 Profile을 정의**할 수 있음
+* 각 Pod은 `spec.schedulerName` 필드로 어떤 Profile을 사용할지 선택 가능
+* 이를 통해 하나의 클러스터 내에서 워크로드 특성별(예: 배치 vs 실시간 서비스)로 다른 스케줄링 정책을 동시에 적용 가능
+
+예시:
+
+```yaml
+profiles:
+  - schedulerName: default-scheduler
+    plugins:
+      queueSort:
+        enabled:
+          - name: PrioritySort
+      filter:
+        enabled:
+          - name: NodeResourcesFit
+  - schedulerName: batch-scheduler
+    plugins:
+      queueSort:
+        enabled:
+          - name: PrioritySort
+      score:
+        enabled:
+          - name: ImageLocality
+```
