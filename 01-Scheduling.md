@@ -661,3 +661,56 @@ kubectl get priorityclass
 
 kubectl get pod critical-app -o yaml > critical-app.yaml
 ```
+
+# Multiple Schedulers
+
+## 개념
+
+* Kubernetes는 기본적으로 **kube-scheduler**라는 하나의 기본 스케줄러를 제공함
+* 하지만 필요에 따라 **여러 개의 스케줄러를 동시에 실행**할 수 있음 → 이를 **Multiple Schedulers**라고 함
+* 각 스케줄러는 특정 Pod에 대해 스케줄링 결정을 내림
+* Pod가 어떤 스케줄러에 의해 처리될지 지정하기 위해 `spec.schedulerName` 필드를 사용함
+
+## 동작 방식
+
+1. **기본 스케줄러 (default-scheduler)**
+
+   * 별도의 설정이 없으면 Pod는 기본 스케줄러에 의해 처리됨
+   * 즉 `schedulerName: default-scheduler`
+
+2. **커스텀 스케줄러 추가**
+
+   * 사용자 정의 스케줄러를 배포하고, Pod spec에 해당 스케줄러 이름을 명시하면 그 스케줄러가 해당 Pod을 처리
+   * 예:
+
+     ```yaml
+     apiVersion: v1
+     kind: Pod
+     metadata:
+       name: custom-scheduler-pod
+     spec:
+       schedulerName: my-scheduler
+       containers:
+         - name: nginx
+           image: nginx
+     ```
+
+3. **스케줄링 충돌 방지**
+
+   * 각 Pod는 오직 하나의 스케줄러에만 의해 스케줄링됨
+   * 여러 스케줄러가 동시에 같은 Pod을 처리하지 않음
+   * Pod가 특정 스케줄러 이름을 가지면, 그 외의 스케줄러는 무시
+
+## 사용 사례
+
+* **특정 워크로드 최적화**: 예를 들어, ML 워크로드 전용 스케줄러, GPU 스케줄링 전용 스케줄러
+* **특정 비즈니스 로직 적용**: 예를 들어, 지역 기반 분산 스케줄링, SLA 고려한 Pod 배치
+* **테스트 및 실험 목적**: 새로운 스케줄링 알고리즘 실험 시
+
+## Practice Test - Multiple Schedulers
+```sh
+kubectl get pods -all-namespaces
+kubectl describe pod kube-scheduler-controlplane --namespace=kube-system
+```
+
+# Configuring Scheduler Profiles
