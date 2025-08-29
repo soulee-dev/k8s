@@ -881,3 +881,126 @@ kubectl get pvc myclaim -oyaml
 
 ps -ef | grep kube-apiserver | grep admission-plugins
 ```
+
+# Validating & Mutating Admission Controllers + Webhook Configuration
+
+Admission Controller는 API Server로 들어오는 요청을 가로채 **변경(Mutating)** 하거나 **검증(Validating)** 함.
+흐름: `kubectl → Authentication → Authorization → Admission Controllers → etcd`
+
+---
+
+## 타입 요약
+
+* **Mutating**: 요청 변경 가능. 예) 기본 label/annotation 삽입, sidecar 주입, imagePullPolicy 강제 등.
+* **Validating**: 요청 변경 불가, 정책 위반 시 거부. 예) privileged 금지, 리소스 한도 검증 등.
+* 실무: **Mutating → Validating** 순서로 함께 사용해 기본값 주입 후 정책 준수 여부 최종 확인.
+
+---
+
+## Webhook 기반 Admission Controller 개념
+
+* **MutatingAdmissionWebhook / ValidatingAdmissionWebhook** 리소스(WebhookConfiguration)를 만들어, API Server가 **외부 HTTPS 엔드포인트**(보통 클러스터 내부 Service)로 AdmissionReview를 전송.
+* Webhook 서버는 AdmissionReview **요청**을 받고, **허용/거부 + (Mutating의 경우) 패치**를 담은 AdmissionReview **응답**을 반환.
+
+---
+
+## Webhook 서버 구성 필수 요소
+
+1. **HTTPS 서버**(보통 Deployment로 구동)
+
+   * `/mutate`, `/validate` 등 경로로 AdmissionReview JSON 처리
+   * TLS 필수(서버 인증서 + CA 체인)
+2. **Service**: API Server가 접근할 클러스터 DNS 경로 제공
+3. **TLS/CA 설정**
+
+   * WebhookConfiguration의 `clientConfig.caBundle`에 **서버 인증서를 서명한 CA**를 Base64로 주입
+   * 또는 cert-manager 등으로 자동화
+4. **Mutating/ValidatingWebhookConfiguration**: 어떤 리소스/오퍼레이션에 훅을 걸지 정의
+
+---
+
+## MutatingWebhookConfiguration 예시
+
+```yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: demo-mutating-webhook
+webhooks:
+  - name: inject-labels.example.com
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    reinvocationPolicy: IfNeeded
+    timeoutSeconds: 10
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchExpressions:
+        - key: webhook.example.com/enabled
+          operator: In
+          values: ["true"]
+    objectSelector:
+      matchExpressions:
+        - key: app.kubernetes.io/part-of
+          operator: NotIn
+          values: ["exclude-me"]
+    rules:
+      - apiGroups:   [""]
+        apiVersions: ["v1"]
+        operations:  ["CREATE","UPDATE"]
+        resources:   ["pods"]
+        scope:       "Namespaced"
+    clientConfig:
+      service:
+        name: demo-webhook-svc
+        namespace: webhook-system
+        path: /mutate
+        port: 443
+      caBundle: <BASE64_CA_CERT>
+```
+
+* **핵심 필드**
+
+  * `rules`: 어떤 리소스/오퍼레이션에 적용할지
+  * `clientConfig`: 호출할 Service/URL + `caBundle`
+  * `failurePolicy`:
+
+    * `Fail`: 웹훅 장애 시 요청 **거부**
+    * `Ignore`: 웹훅 장애 시 **허용**
+  * `namespaceSelector`/`objectSelector`: 대상 범위 필터링
+  * `reinovationPolicy=IfNeeded`: 선행 변이로 객체가 바뀌면 **재호출** 허용
+  * `sideEffects`: 보통 `None` 또는 `NoneOnDryRun`
+  * `timeoutSeconds`: 기본 10, 네트워크 지연 고려
+
+---
+
+## ValidatingWebhookConfiguration 예시
+
+```yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: demo-validating-webhook
+webhooks:
+  - name: enforce-security.example.com
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    timeoutSeconds: 10
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    rules:
+      - apiGroups:   [""]
+        apiVersions: ["v1"]
+        operations:  ["CREATE","UPDATE"]
+        resources:   ["pods"]
+        scope:       "Namespaced"
+    clientConfig:
+      service:
+        name: demo-webhook-svc
+        namespace: webhook-system
+        path: /validate
+        port: 443
+      caBundle: <BASE64_CA_CERT>
+```
+
+* **변이 없음**. 요청이 정책에 맞는지 **허용/거부**만 판단.
