@@ -808,3 +808,76 @@ profiles:
         enabled:
           - name: ImageLocality
 ```
+
+# Admission Controllers
+
+## 개념
+
+* Admission Controller는 **Kubernetes API Server로 들어오는 요청을 가로채어 추가 검증이나 변환을 수행하는 플러그인**임
+* `Authentication → Authorization → Admission Controller → etcd` 흐름 중, Authentication과 Authorization을 통과한 후 실행됨
+* RBAC과 비교했을 때, RBAC은 **권한 여부만 판단**하는 반면, Admission Controller는 **리소스의 속성, 정책, 클러스터 설정에 따른 검증 및 변환**을 수행할 수 있음
+
+## 동작 흐름
+
+1. `kubectl` 또는 API Client 요청 발생
+2. **Authentication** → 요청자가 누구인지 인증
+3. **Authorization** → RBAC 등으로 권한 확인
+4. **Admission Controller** → 정책 기반 검증 및 변경
+
+   * Validating Admission Controller: 요청 검증, 조건 불충족 시 거부
+   * Mutating Admission Controller: 요청 객체를 변경/보강 (예: Default 값 설정)
+5. 요청이 유효하다면 API Server가 etcd에 저장 후, kube-scheduler, kubelet 등에 전달
+
+→ 즉, **최종적으로 Pod, Deployment 등의 오브젝트가 생성되기 전에 필터링/수정**을 거치는 단계
+
+---
+
+## 주요 Admission Controller 예시
+
+* **AlwaysPullImages**
+
+  * 모든 Pod 생성 시 imagePullPolicy를 `Always`로 강제
+  * 캐싱된 이미지 사용을 막고 항상 최신 이미지를 가져오도록 보장
+
+* **DefaultStorageClass**
+
+  * PVC(PersistentVolumeClaim)에 storageClassName이 지정되지 않은 경우, 기본 StorageClass를 자동 할당
+
+* **EventRateLimit**
+
+  * 이벤트(Event) 생성 속도를 제한하여 etcd나 API Server 과부하 방지
+
+* **NamespaceAutoProvision**
+
+  * 존재하지 않는 Namespace에 리소스를 생성하려 할 때, Namespace를 자동으로 생성
+
+* **NamespaceExists**
+
+  * 대상 Namespace가 존재하는지 확인, 없으면 요청 거부
+
+---
+
+## Admission Controller의 위치
+
+```
+kubectl 
+   ↓
+Authentication
+   ↓
+Authorization (RBAC 등)
+   ↓
+Admission Controller
+   ↓
+API Server → etcd 저장 → Pod 생성
+```
+
+## Practice Tests  - Admission Controllers
+```sh
+kubectl exec -it kube-apiserver-controlplane -n kube-system -- kube-apiserver -h | grep 'enable-admission-plugins'
+
+grep enable-admission-plugins /etc/kubernetes/manifests/kube-apiserver.yaml
+
+kubectl get pvc myclaim -oyaml
+
+ps -ef | grep kube-apiserver | grep admission-plugins
+```
