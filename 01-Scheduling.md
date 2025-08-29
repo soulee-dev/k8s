@@ -882,7 +882,7 @@ kubectl get pvc myclaim -oyaml
 ps -ef | grep kube-apiserver | grep admission-plugins
 ```
 
-# Validating & Mutating Admission Controllers + Webhook Configuration
+# Validating & Mutating Admission Controllers
 
 Admission Controller는 API Server로 들어오는 요청을 가로채 **변경(Mutating)** 하거나 **검증(Validating)** 함.
 흐름: `kubectl → Authentication → Authorization → Admission Controllers → etcd`
