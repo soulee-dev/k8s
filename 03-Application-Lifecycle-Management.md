@@ -123,3 +123,126 @@ containers:
 # Pod에서 command/args를 업데이트 하는건 불가능 하다
 kubectl replace --force -f ubuntu-sleeper-3.yaml
 ```
+
+# Configure Environment Variables in Applications
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: envar-demo
+  labels:
+    purpose: demonstrate-envars
+spec:
+  containers:
+  - name: envar-demo-container
+    image: gcr.io/google-samples/hello-app:2.0
+    env:
+    - name: DEMO_GREETING
+      value: "Hello from the environment"
+    - name: DEMO_FAREWELL
+      value: "Such a sweet sorrow"
+```
+
+
+- Plain Key
+- ConfigMap
+- Secrets
+
+
+# Configuring ConfigMaps in Applications
+
+ConfigMap은 애플리케이션에서 사용하는 **환경 설정 데이터**를 관리하기 위한 Kubernetes 오브젝트임.
+Pod 정의와는 별도로 key-value 형식의 설정을 저장하고, Pod에 주입하여 애플리케이션이 동적으로 설정을 읽을 수 있게 함.
+
+---
+
+## 생성 방법
+
+### 1. Imperative 방식
+
+```sh
+kubectl create configmap <config-name> \
+  --from-literal=<key>=<value>
+```
+
+### 2. Declarative 방식 (YAML 정의)
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  APP_COLOR: blue
+```
+
+---
+
+## Pod에 주입 방법
+
+ConfigMap은 Pod 내부에서 **환경 변수** 또는 **Volume** 형태로 사용 가능함.
+
+### 1. envFrom (전체 주입)
+
+```yaml
+spec:
+  containers:
+  - name: app
+    envFrom:
+      - configMapRef:
+          name: app-config
+```
+
+### 2. 단일 환경변수 주입
+
+```yaml
+spec:
+  containers:
+  - name: app
+    env:
+      - name: APP_COLOR
+        valueFrom:
+          configMapKeyRef:
+            name: app-config
+            key: APP_COLOR
+```
+
+### 3. Volume으로 마운트
+
+ConfigMap 데이터를 파일로써 컨테이너 내부에 주입 가능
+
+```yaml
+spec:
+  containers:
+  - name: app
+    volumeMounts:
+      - name: config-volume
+        mountPath: /etc/config
+  volumes:
+    - name: config-volume
+      configMap:
+        name: app-config
+```
+
+컨테이너 내부에서는 `/etc/config/APP_COLOR` 같은 파일 형태로 접근 가능함.
+
+## Practice Test - Env Variables
+vi에서 탭을 누를떄 스페이스로 하려면
+```vim
+:set expandtab
+:set tabstop=2
+:set shiftwidth=2
+```
+
+Syntax를 켜려면
+```vim
+:syntax on
+```
+
+```sh
+kubectl get configmaps
+kubectl describe configmap db-config
+
+kubectl create configmap  webapp-config-map \
+--from-literal=APP_COLOR=darkblue --from-literal=APP_OTHER=disregard
+```
