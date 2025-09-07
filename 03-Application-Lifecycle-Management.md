@@ -89,3 +89,37 @@ docker run ubuntu-sleeper 5
 - ENTRYPOINT: 실행 파일 지정 (고정).
 - CMD: ENTRYPOINT에 전달될 기본 인자(default arguments).
 - 즉, docker run에서 아무 인자 안주면 CMD가 기본값으로 사용되고, 인자를 주면 CMD 대신 그 값이 사용됨
+
+# Commands and Arguments in Kubernetes
+## 1. command
+
+* 컨테이너가 실행할 **프로세스 자체**를 지정.
+* Dockerfile에 `ENTRYPOINT`가 있으면 그것을 무시하고 새로운 실행 명령으로 바꿈.
+
+```yaml
+containers:
+  - name: app
+    image: busybox
+    command: ["sleep"]   # 실행할 프로그램
+```
+
+---
+
+## 2. args
+
+* `command`에 전달할 **인자(arguments)** 를 지정.
+* Dockerfile의 `CMD`를 덮어씌우는 역할.
+
+```yaml
+containers:
+  - name: app
+    image: busybox
+    command: ["sleep"]   # 실행할 프로그램
+    args: ["3600"]       # sleep에 전달할 인자
+```
+
+## Practice Test - Commands and Arguments
+```sh
+# Pod에서 command/args를 업데이트 하는건 불가능 하다
+kubectl replace --force -f ubuntu-sleeper-3.yaml
+```
