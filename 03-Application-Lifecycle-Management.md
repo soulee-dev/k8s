@@ -55,3 +55,37 @@ kubectl rollout undo deployment/myapp-deployment      # 이전 버전으로 롤�
 # 페이지 내용이 너무 길떈 'less'명령어
 kubectl describe deployment frontend | less
 ```
+
+# Commands and Arguments in Docker
+## CMD
+- 기본 실행 명령어 정의
+- 사용자가 run에서 인자를 주면 **덮어쓰기**됨
+
+```dockerfile
+FROM ubuntu
+CMD ["sleep", "5"]
+```
+
+```sh
+docker run ubuntu-sleeper
+
+docker run ubuntu-sleeper sleep 10
+```
+
+## ENTRYPOINT
+- 컨테이너 실행 시 항상 실행되어야 하는 **고정 실행 명령어**
+- 사용자가 인자를 주더라도 ENTRYPOINT는 덮어쓰기 되지 않고 뒤에 인자로 붙음
+
+```dockerfile
+FROM ubuntu
+ENTRYPOINT ["sleep"]
+```
+
+```sh
+docker run ubuntu-sleeper 5
+```
+
+## CMD + ENTRYPOINT
+- ENTRYPOINT: 실행 파일 지정 (고정).
+- CMD: ENTRYPOINT에 전달될 기본 인자(default arguments).
+- 즉, docker run에서 아무 인자 안주면 CMD가 기본값으로 사용되고, 인자를 주면 CMD 대신 그 값이 사용됨
