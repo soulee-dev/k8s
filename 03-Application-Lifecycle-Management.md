@@ -515,109 +515,164 @@ spec:
 * Pod의 안정적 구동과 외부 의존성 준비에 활용됨
 
 # Autoscaling
-- Horizontal
-- Vertical
 
-Load increases,
+Kubernetes는 워크로드와 클러스터 인프라 수준에서 확장(Scaling)을 지원함. 확장은 크게 **Horizontal(수평 확장)** 과 **Vertical(수직 확장)** 으로 나눔.
 
-Vertical Scaling (Increase size of existing server, CPU, Memory)
+---
 
-Horizontal Scaling (Adding more servers)
+## Scaling 개념
 
-Two ways to scaling
+* **Vertical Scaling (수직 확장)**
+  기존 서버의 리소스(CPU, Memory)를 늘림.
 
-1. Scaling Workload
-  - Horizontal (Creating More pods)
-      - kubectl scale ... (manual)
-      - Horizontal Pod Autoscaler
-  - Vertical (Increasing more allocated resource)
-      - kubectl edit ... (manual)
-      - Vertical Pod Autoscaler
-2. Scaling Cluster Infra
-  - kubeadm join (manual)
-  - Cluster Autoscaler (Automated)
+  * 예: Pod에 더 많은 CPU/Memory 할당
+  * 한계: 노드 자체 리소스 이상으로 확장 불가
+
+* **Horizontal Scaling (수평 확장)**
+  동일한 서버/Pod을 여러 개 추가하여 부하 분산.
+
+  * 예: 동일한 Deployment의 Pod을 여러 개 생성
+
+---
+
+## Scaling 방법
+
+1. **Scaling Workload**
+
+   * **Horizontal**
+
+     * 수동: `kubectl scale deployment my-app --replicas=3`
+     * 자동: **Horizontal Pod Autoscaler (HPA)**
+   * **Vertical**
+
+     * 수동: `kubectl edit deployment my-app` 후 리소스 수정
+     * 자동: **Vertical Pod Autoscaler (VPA)**
+
+2. **Scaling Cluster Infra**
+
+   * 수동: `kubeadm join` 으로 노드 추가
+   * 자동: **Cluster Autoscaler**
+
+     * 워크로드에 따라 노드 풀 크기 자동 조정
+     * 클라우드 환경(GKE, EKS, AKS 등)에서 주로 사용
+
+---
 
 ## Horizontal Pod Autoscaler (HPA)
- Manual Way
-```sh
-kubectl scale deploymeny my-app --replicas=3
-```
 
-HPA
-- Observes metrics
-- Adds pods
-- Balances thresholds
+Pod의 **CPU/Memory 사용량** 또는 **사용자 정의 지표(Custom Metrics)** 를 기반으로 Replica 수를 자동 조정함.
+
+### 특징
+
+* Metrics API (metrics-server 필수) 사용
+* 정의된 `targetCPUUtilizationPercentage` 또는 custom/external metrics 기반
+* 최소/최대 Pod 개수 범위 내에서 자동 스케일링
+
+### CLI 예제
 
 ```sh
-kubectl autoscale deploymeny my-app \
+# 수동
+kubectl scale deployment my-app --replicas=3
+
+# 자동
+kubectl autoscale deployment my-app \
   --cpu-percent=50 --min=1 --max=10
-```
 
-Usage goes beyond 50%, 
-
-```sh
 kubectl get hpa
-
+kubectl get hpa --watch
 kubectl delete hpa my-app
 ```
 
-Declaritive
+### Declarative 방식
 
 ```yaml
-...
-kind: HorizontalPodAutoScaler
-...
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
 ```
 
-Custom Metrics Adapter
-External Adapter
- - DATADOG
- - dynatrace
-...
+### Custom / External Metrics
 
-## Practice Test - Manual Scaling
+* **Custom Metrics Adapter**: 애플리케이션 특화 지표 기반 (ex. QPS, 요청 대기 시간)
+* **External Adapter**: 외부 모니터링 툴과 연동 (Datadog, Dynatrace 등)
 
-`StatefulSets` also be be scaled down as well as `Deployments`
+---
 
-```sh
-kubectl scale deployment flask-web-app --replicas=3
-```
+## In-place Pod Resize (Beta)
 
-## Practise Test - HPA
-```sh
-kubectl get hpa
+Pod 리소스를 런타임에 수정할 수 있음.
 
-kubectl get hpa --watch
-```
+* `resizePolicy`로 리소스별 재시작 정책 설정
+* **제한사항**
 
-resource가 없는 경우 <unknonw>이 나오고
-FailMetric evnet가 나온다
+  * CPU/Memory만 가능
+  * QoS Class 변경 불가
+  * initContainers/ephemeralContainers는 리사이즈 불가
+  * 리소스 제거 불가 (requests/limits 삭제 불가)
+  * 현재 메모리 사용량 이하로 limit 축소 불가
+  * Windows Pod 불가
 
-## In-place Resize of Pod Resources
-in Beta
+---
 
-resizePolicy
-  - resourceNmae: cpu
-    restartPolicy: NotRequired
-  - resourceName; memory
-    restartPoliy: RestartContainer
+## Vertical Pod Autoscaler (VPA)
 
-Limitations
-- Only CPU and Memory reousrced
-- pod qos class cannot be changed
-- init containers and ephemeral containers cannot be resiezed
-- resource requests and limits cannobt rremoved once set
-- a container's memory limit may not be reduced below its usage. if a request puts a container in this stable, the reisze status will remain InProgress until te desired memory limit becomes feasible
-- windows pods cannot be resized
+Pod이 사용하는 CPU/Memory를 모니터링 후 **자동으로 requests/limits 조정**
 
-## Vertical Pod Autoscaling
-you can edit the resource allocated in the pod by using kubectl edit.
+### 구성 요소
 
-but in the automated mean, vpa(vertical pod autosclaer) observes metrics, adjusts pod resources, balances thresholds
+* **Recommender**: Metrics 서버에서 수집 → 리소스 추천
+* **Updater**: 기존 Pod 종료 후 새로운 리소스로 재시작
+* **Admission Controller**: 새로 생성되는 Pod에 추천 리소스 적용
 
-vpa does not come build-in with kubernetes, we must deploy it.
+### 특징
 
-vpa admission controller (creates pods with recommended resources)
-vpa updator (evicts them when update is needed)
-vpa recommender (collects metrics from metrics server)
+* Pod 재시작 필요 (실시간 대응은 어려움)
+* CPU/Memory-heavy 워크로드에 적합 (DB, ML workload 등)
+* 오버 프로비저닝 방지
+* 기본 Kubernetes에는 내장되어 있지 않아 별도 설치 필요
 
+---
+
+## Cluster Autoscaler
+
+* 워크로드 스케줄링이 불가하면 노드 풀 자동 확장
+* 불필요한 노드 제거 가능
+* 클라우드 환경에서 주로 사용 (AWS, GCP, Azure)
+* 온프레미스 환경에서는 직접 통합 필요
+
+---
+
+## HPA vs VPA 비교
+
+| 구분       | HPA                                | VPA                             |
+| -------- | ---------------------------------- | ------------------------------- |
+| 방식       | Pod 수 조정                           | Pod 리소스 조정                      |
+| 리소스 사용   | Replica 증가/감소                      | CPU/Memory 변경                   |
+| Pod 재시작  | 불필요                                | 필요                              |
+| 반응 속도    | 빠름 (즉시 Pod 추가 가능)                  | 느림 (Pod 재시작 필요)                 |
+| 적합한 워크로드 | Web apps, microservices, stateless | Stateful, CPU/Memory-heavy apps |
+| 목표       | 부하 분산, 고가용성                        | 효율적 리소스 사용, 오버프로비저닝 방지          |
+
+---
+
+## Key Takeaways
+
+* **HPA**: 빠른 부하 대응, stateless 서비스에 적합
+* **VPA**: 안정적 자원 최적화, stateful/리소스 집중 서비스에 적합
+* **Cluster Autoscaler**: Pod이 스케줄되지 못할 경우 노드 단위 확장
+* **조합 가능**: HPA + VPA 동시 사용 (단, 충돌 방지를 위해 VPA는 requests 추천만, HPA는 replica 조정 담당)
