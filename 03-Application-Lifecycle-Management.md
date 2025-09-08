@@ -334,3 +334,290 @@ kubectl get pod webapp-pod -o yaml > webapp-definition.yaml
 ```
 
 VI에서 `dd`로 지운 명령를 다시 되도리려면 `u`를 사용할 수 있다.
+
+# Multi Container Pods
+
+## 개념
+
+* 여러 컨테이너가 하나의 Pod 안에서 동작
+* **생성/삭제 함께 수행** (created together, destroyed together)
+* **공유 리소스**: lifecycle, network, storage
+
+```yaml
+spec:
+  containers:
+    - name: webapp
+      image: nginx
+    - name: main-app
+      image: busybox
+```
+
+---
+
+## Multi Container Pod Design Pattern
+
+### 1. Co-located containers
+
+* 같은 Pod 안에서 함께 시작하고 종료됨
+* 주로 **서로 보완적인 기능**을 수행
+
+  * 예: 하나는 데이터 처리, 다른 하나는 결과 노출
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: co-located-example
+spec:
+  containers:
+    - name: main-app
+      image: busybox
+      command: ["sh", "-c", "while true; do echo Hello from main-app; sleep 5; done"]
+    - name: helper
+      image: busybox
+      command: ["sh", "-c", "while true; do echo Helper running; sleep 5; done"]
+```
+
+---
+
+### 2. Init Containers
+
+* 메인 컨테이너가 실행되기 전에 **한 번만 실행되는 컨테이너**
+* 환경 설정, 데이터 준비, 권한 설정 등 선행 작업에 사용
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-example
+spec:
+  initContainers:
+    - name: init-myservice
+      image: busybox
+      command: ['sh', '-c', 'echo initializing...; sleep 5;']
+  containers:
+    - name: main-app
+      image: busybox
+      command: ["sh", "-c", "echo The app is running! && sleep 3600"]
+```
+
+---
+
+### 3. Sidecar Containers
+
+* 메인 컨테이너를 보조하는 컨테이너
+* **메인 컨테이너보다 먼저 시작**되며 주로 **로그 수집, 데이터 동기화, 프록시 역할** 수행
+* 메인 컨테이너와 함께 실행되며 `restartPolicy: Always` 사용
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sidecar-example
+spec:
+  containers:
+    - name: main-app
+      image: busybox
+      command: ["sh", "-c", "while true; do echo Running app...; sleep 5; done"]
+  initContainers:
+    - name: sidecar
+      image: busybox
+      command: ["sh", "-c", "while true; do echo Collecting logs...; sleep 5; done"]
+  restartPolicy: Always
+```
+
+---
+
+## Real world scenario
+
+* **Sidecar Filebeat + ELK Stack**
+
+  * 메인 애플리케이션 컨테이너: 로그 생성
+  * 사이드카 컨테이너(Filebeat): 로그를 수집하여 Elasticsearch로 전송
+  * Kibana를 통해 시각화
+
+## Practice Test - Multi Container Pods
+```sh
+kubectl -n elastic-stack exec -it app -- cat /log/app.log
+```
+
+# Init Containers
+
+## 개념
+
+* 일반 컨테이너는 Pod의 라이프사이클 동안 항상 살아 있어야 함
+  (예: 웹 애플리케이션 + 로그 에이전트)
+* 하지만 **한 번 실행되고 종료되는 작업**이 필요한 경우 존재
+  (예: 코드/바이너리 다운로드, 외부 서비스 준비 대기)
+* 이런 경우 사용하는 것이 **InitContainer**임
+
+## 특징
+
+* `spec.initContainers` 섹션에 정의
+* 일반 컨테이너와 동일하게 정의하지만 **반드시 완료(Complete) 상태**가 되어야 함
+* 모든 InitContainer가 순차적으로 실행 완료된 후에 메인 컨테이너 실행
+* 만약 InitContainer가 실패하면 Pod는 반복적으로 재시작하여 InitContainer가 성공할 때까지 재시도
+
+## 사용 사례
+
+1. **애플리케이션 시작 전 준비 작업**
+
+   * Git 리포지토리에서 코드/바이너리 다운로드
+   * Config 파일 생성
+2. **외부 서비스 준비 대기**
+
+   * DB, 다른 서비스가 준비될 때까지 `nslookup`이나 `curl` 등으로 확인 후 대기
+
+## 예시 1: 단일 InitContainer
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp-pod
+spec:
+  containers:
+  - name: myapp-container
+    image: busybox:1.28
+    command: ['sh', '-c', 'echo The app is running! && sleep 3600']
+  initContainers:
+  - name: init-myservice
+    image: busybox
+    command: ['sh', '-c', 'git clone <repo-url>']
+```
+
+## 예시 2: 다중 InitContainer
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp-pod
+spec:
+  containers:
+  - name: myapp-container
+    image: busybox:1.28
+    command: ['sh', '-c', 'echo The app is running! && sleep 3600']
+  initContainers:
+  - name: init-myservice
+    image: busybox:1.28
+    command: ['sh', '-c', 'until nslookup myservice; do echo waiting for myservice; sleep 2; done;']
+  - name: init-mydb
+    image: busybox:1.28
+    command: ['sh', '-c', 'until nslookup mydb; do echo waiting for mydb; sleep 2; done;']
+```
+
+## 정리
+
+* InitContainer는 Pod 시작 전에 실행되는 준비 단계 컨테이너
+* 반드시 **성공적으로 완료**되어야 본 컨테이너 실행
+* 여러 개를 정의하면 **순차적 실행**
+* Pod의 안정적 구동과 외부 의존성 준비에 활용됨
+
+# Autoscaling
+- Horizontal
+- Vertical
+
+Load increases,
+
+Vertical Scaling (Increase size of existing server, CPU, Memory)
+
+Horizontal Scaling (Adding more servers)
+
+Two ways to scaling
+
+1. Scaling Workload
+  - Horizontal (Creating More pods)
+      - kubectl scale ... (manual)
+      - Horizontal Pod Autoscaler
+  - Vertical (Increasing more allocated resource)
+      - kubectl edit ... (manual)
+      - Vertical Pod Autoscaler
+2. Scaling Cluster Infra
+  - kubeadm join (manual)
+  - Cluster Autoscaler (Automated)
+
+## Horizontal Pod Autoscaler (HPA)
+ Manual Way
+```sh
+kubectl scale deploymeny my-app --replicas=3
+```
+
+HPA
+- Observes metrics
+- Adds pods
+- Balances thresholds
+
+```sh
+kubectl autoscale deploymeny my-app \
+  --cpu-percent=50 --min=1 --max=10
+```
+
+Usage goes beyond 50%, 
+
+```sh
+kubectl get hpa
+
+kubectl delete hpa my-app
+```
+
+Declaritive
+
+```yaml
+...
+kind: HorizontalPodAutoScaler
+...
+```
+
+Custom Metrics Adapter
+External Adapter
+ - DATADOG
+ - dynatrace
+...
+
+## Practice Test - Manual Scaling
+
+`StatefulSets` also be be scaled down as well as `Deployments`
+
+```sh
+kubectl scale deployment flask-web-app --replicas=3
+```
+
+## Practise Test - HPA
+```sh
+kubectl get hpa
+
+kubectl get hpa --watch
+```
+
+resource가 없는 경우 <unknonw>이 나오고
+FailMetric evnet가 나온다
+
+## In-place Resize of Pod Resources
+in Beta
+
+resizePolicy
+  - resourceNmae: cpu
+    restartPolicy: NotRequired
+  - resourceName; memory
+    restartPoliy: RestartContainer
+
+Limitations
+- Only CPU and Memory reousrced
+- pod qos class cannot be changed
+- init containers and ephemeral containers cannot be resiezed
+- resource requests and limits cannobt rremoved once set
+- a container's memory limit may not be reduced below its usage. if a request puts a container in this stable, the reisze status will remain InProgress until te desired memory limit becomes feasible
+- windows pods cannot be resized
+
+## Vertical Pod Autoscaling
+you can edit the resource allocated in the pod by using kubectl edit.
+
+but in the automated mean, vpa(vertical pod autosclaer) observes metrics, adjusts pod resources, balances thresholds
+
+vpa does not come build-in with kubernetes, we must deploy it.
+
+vpa admission controller (creates pods with recommended resources)
+vpa updator (evicts them when update is needed)
+vpa recommender (collects metrics from metrics server)
+
