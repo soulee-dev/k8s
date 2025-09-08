@@ -246,3 +246,91 @@ kubectl describe configmap db-config
 kubectl create configmap  webapp-config-map \
 --from-literal=APP_COLOR=darkblue --from-literal=APP_OTHER=disregard
 ```
+
+# Secrets
+
+Kubernetes Secret은 민감한 데이터(비밀번호, 토큰, 인증서 등)를 저장하고 Pod에서 참조할 수 있도록 하는 리소스임. ConfigMap과 비슷하지만, 보안 데이터를 저장하는 용도로 사용됨.
+
+---
+
+## Secret 생성 방법
+
+### 1. Imperative 방식
+
+```sh
+kubectl create secret generic <secret-name> \
+  --from-literal=<key>=<value>
+```
+
+### 2. Declarative 방식
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret
+type: Opaque
+data:
+  username: dXNlcm5hbWU=   # base64 encoded
+  password: cGFzc3dvcmQ=   # base64 encoded
+```
+
+### base64 인코딩/디코딩
+
+```sh
+echo -n <value> | base64           # 인코딩
+echo -n <base64-value> | base64 --decode  # 디코딩
+```
+
+> Secret은 base64로 인코딩되어 저장되지만, **기본적으로 암호화(encryption)는 아님**. (etcd에 저장될 때 암호화 옵션을 따로 설정해야 함)
+
+---
+
+## Pod에 Secret 주입 방법
+
+### 1. 환경 변수 전체 주입
+
+```yaml
+envFrom:
+  - secretRef:
+      name: app-secret
+```
+
+### 2. 특정 key를 환경 변수로 주입
+
+```yaml
+env:
+  - name: DB_USER
+    valueFrom:
+      secretKeyRef:
+        name: app-secret
+        key: username
+```
+
+### 3. Volume으로 주입
+
+```yaml
+volumes:
+  - name: secret-vol
+    secret:
+      secretName: app-secret
+
+containers:
+  - name: app
+    volumeMounts:
+      - name: secret-vol
+        mountPath: "/etc/secret"
+```
+
+* key 이름으로 파일이 생성되고, 그 내용이 value가 됨
+
+## Practice Test - Secrets
+```sh
+kubectl get secrets
+
+kubectl describe secret dashboard-token
+
+kubectl get pod webapp-pod -o yaml > webapp-definition.yaml
+```
+
+VI에서 `dd`로 지운 명령를 다시 되도리려면 `u`를 사용할 수 있다.
