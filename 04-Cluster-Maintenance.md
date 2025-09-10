@@ -136,4 +136,70 @@ kubectl get nodes
 kubectl describe node controlplane | grep -i taint
 
 kubeadm upgrade plan
+
+kubectl drain controlplane --ignore-daemonsets
+```
+
+## Backup and Restore Methods
+
+### Backup 대상
+
+* **Resource Configurations**: 클러스터에 정의된 모든 리소스 매니페스트
+* **Etcd Cluster**: Kubernetes의 핵심 데이터 저장소
+* **Persistent Volumes**: 실제 애플리케이션 데이터 저장소
+
+---
+
+### Resource Configurations
+
+* 클러스터의 Deployment, Service, ConfigMap 등은 선언형 리소스 정의(YAML)로 백업 가능
+* **Best Practice**: 리소스 매니페스트를 GitHub 같은 소스코드 저장소에 보관
+* 예시 명령어:
+
+  ```sh
+  kubectl get all --all-namespaces -o yaml > all-deploy-services.yaml
+  ```
+* **도구**: Velero → 리소스 및 볼륨 스냅샷을 클라우드 스토리지에 백업 및 복원 가능
+
+---
+
+### Etcd
+
+* Kubernetes의 상태 데이터는 etcd에 저장됨
+* etcd 데이터 디렉토리: `--data-dir` 옵션으로 지정됨
+* **스냅샷 기능 내장**
+
+  * 수동 스냅샷:
+
+    ```sh
+    ETCDCTL_API=3 etcdctl snapshot save snapshot.db
+    ```
+  * 복원:
+
+    ```sh
+    ETCDCTL_API=3 etcdctl snapshot restore snapshot.db
+    ```
+* etcdctl 사용 시 반드시 인증 관련 플래그(`--endpoints`, `--cert`, `--key`, `--cacert`) 설정 필요
+
+---
+
+### Persistent Volumes
+
+* 앱의 데이터가 실제로 저장되는 영역 → 단순히 매니페스트만 저장하면 복원 불가
+* **백업 방식**
+
+  * 스토리지 제공자가 지원하는 스냅샷 기능 사용 (예: AWS EBS snapshot, Ceph RBD snapshot 등)
+  * Velero 같은 도구 활용 → PV 데이터를 외부 스토리지에 백업 가능
+
+### Practice Test - Backup and Restore Methods
+```sh
+etcdctl --endpoints=https://127.0.0.1:2379 \
+--cacert=/etc/kubernetes/pki/etcd/ca.crt \
+--cert=/etc/kubernetes/pki/etcd/server.crt \
+--key=/etc/kubernetes/pki/etcd/server.key \
+snapshot save /opt/snapshot-pre-boot.db
+
+etcdutl snapshot restore /opt/snapshot-pre-boot.db --data-dir /var/lib/etcd-from-backup
+
+watch crictl ps
 ```
