@@ -54,3 +54,86 @@ kubectl drain node01 --ignore-daemonsets
 
 kubectl uncordon node01
 ```
+
+## Cluster Upgrade Process
+
+### 버전 규칙
+
+* Kubernetes 구성 요소 간에는 버전 호환 규칙이 있음
+* **kube-apiserver**가 항상 가장 높은 버전이어야 함
+* **controller-manager, kube-scheduler** → kube-apiserver보다 최대 **1 버전 낮을 수 있음**
+* **kubelet, kube-proxy** → kube-apiserver보다 최대 **2 버전 낮을 수 있음**
+* **kubectl** → kube-apiserver와 **동일 / 1 버전 낮음 / 1 버전 높음** 모두 가능
+* Kubernetes는 **최대 3개의 minor version**까지만 지원
+* **권장**: 한 번에 한 minor version씩 업그레이드
+
+### 업그레이드 방법
+
+* Managed Kubernetes (EKS, GKE, AKS 등): CSP에서 제공하는 UI/CLI로 몇 번의 클릭만으로 업그레이드 가능
+* Self-managed Kubernetes: **kubeadm**을 사용해 업그레이드 계획 수립 및 실행
+
+### 업그레이드 절차
+
+1. **Master Node 업그레이드**
+2. **Worker Node 업그레이드**
+
+### 업그레이드 전략
+
+1. **모든 노드를 동시에 업그레이드**
+
+   * 빠름
+   * 클러스터 전체가 다운됨 (다운타임 발생)
+
+2. **한 번에 하나의 노드 업그레이드**
+
+   * 안전함
+   * 워크로드는 다른 노드로 스케줄링됨
+   * 다운타임 없음
+
+3. **새 버전 노드를 추가 배포 후 기존 노드 제거**
+
+   * 특히 클라우드 환경에서 유용
+   * Blue/Green 방식처럼 새 인프라로 점진적 전환 가능
+
+### Master Node 업그레이드
+
+```sh
+# 업그레이드 계획 확인
+kubeadm upgrade plan
+
+# kubeadm 업그레이드
+apt-get upgrade -y kubeadm=1.12.0-00
+
+# master 업그레이드 실행
+kubeadm upgrade apply v1.12.0
+
+# kubelet 업그레이드
+apt-get upgrade -y kubelet=1.12.0-00
+systemctl restart kubelet
+```
+
+### Worker Node 업그레이드
+
+```sh
+# 노드 drain (Pod 다른 노드로 이동)
+kubectl drain node-1
+
+# kubeadm & kubelet 업그레이드
+apt-get upgrade -y kubeadm=1.12.0-00
+apt-get upgrade -y kubelet=1.12.0-00
+
+# kubelet 설정 반영
+kubeadm upgrade node config --kubelet-version v1.12.0
+systemctl restart kubelet
+
+# 노드 다시 스케줄 가능 상태로 변경
+kubectl uncordon node-1
+```
+
+### Practice Test - Cluster Upgrade Process
+```sh
+kubectl get nodes
+kubectl describe node controlplane | grep -i taint
+
+kubeadm upgrade plan
+```
