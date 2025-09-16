@@ -106,3 +106,52 @@ Docker는 스토리지 드라이버를 이용해 레이어 시스템을 구현�
 
   * `--volume-driver`: 사용할 volume driver 지정
   * `--mount`: 외부 스토리지를 컨테이너 내부 특정 경로에 마운트
+
+## Container Storage Interface (CSI)
+
+* Kubernetes가 스토리지를 표준 방식으로 붙이기 위한 인터페이스임
+* 스토리지 벤더가 **CSI 드라이버**만 제공하면, Kubernetes가 볼륨 생성/삭제와 Attach/Mount를 공통 방식으로 처리함
+* Controller/Node 구성의 드라이버가 gRPC(RPC)로 요청을 처리해, 벤더 종속성을 줄이고 다양한 스토리지를 동일한 방식으로 사용할 수 있게 함
+
+## Volumes
+
+### Docker
+
+* 컨테이너는 기본적으로 휘발성임
+* 데이터를 유지하려면 볼륨을 사용해야 함
+* 컨테이너가 삭제되어도 볼륨에 저장된 데이터는 남음
+
+### Kubernetes
+
+* Pod에 Volume을 붙여서 데이터 저장 가능
+* 예시: `hostPath`
+
+  * Pod 내부 `/opt`를 노드의 `/data`와 연결
+  * 단일 노드 환경에서는 유효하지만, 멀티 노드에서는 한계가 있음
+
+```yaml
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: myapp
+      image: alpine
+      volumeMounts:
+        - mountPath: /opt
+          name: data-volume
+  volumes:
+    - name: data-volume
+      hostPath:
+        path: /data
+        type: Directory
+```
+
+* 여러 노드 환경에서는 `hostPath` 대신 클라우드 스토리지나 네트워크 스토리지를 사용해야 함
+
+  * AWS EBS (`awsElasticBlockStore`)
+  * Ceph
+  * NFS
+  * Flocker
+  * Fibre Channel
+  * GlusterFS
+  * ScaleIO
