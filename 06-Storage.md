@@ -155,3 +155,102 @@ spec:
   * Fibre Channel
   * GlusterFS
   * ScaleIO
+
+## Persistent Volumes (PV)
+
+* 클러스터 전체에서 사용할 수 있는 스토리지 리소스
+* 관리자가 미리 정의해둔 볼륨
+* `spec`에 용량, 접근 모드, 스토리지 클래스, 실제 스토리지 백엔드(hostPath, NFS, EBS 등)를 지정
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-example
+spec:
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 1Gi
+  hostPath:
+    path: /tmp/data
+```
+
+* `persistentVolumeReclaimPolicy`
+
+  * **Retain**: 기본값, PV를 삭제해도 데이터는 유지 → 관리자가 수동으로 정리 필요
+  * **Delete**: PVC 삭제 시 PV와 데이터까지 함께 삭제
+  * **Recycle** (deprecated): 단순 초기화 후 재사용
+
+---
+
+## Persistent Volume Claims (PVC)
+
+* 사용자가 필요로 하는 스토리지를 요청하는 리소스
+* 클러스터 내 PV 중 조건에 맞는 것과 **1:1로 바인딩**됨
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: myclaim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+```
+
+* 매칭 조건
+
+  * 요청 용량
+  * 접근 모드(ReadWriteOnce, ReadOnlyMany, ReadWriteMany)
+  * 스토리지 클래스
+  * 필요 시 Selector로 세부 지정 가능
+* 작은 PVC라도 더 큰 PV에 바인딩될 수 있음 (부분 할당 불가 → 남은 용량은 다른 PVC가 사용 불가)
+* 조건에 맞는 PV가 없으면 **Pending 상태**
+
+---
+
+## PVC를 Pod에서 사용하는 방법
+
+* Pod → PVC → PV → 실제 스토리지
+* Pod은 직접 PV를 참조하지 않고, PVC를 통해서만 접근
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mypod
+spec:
+  containers:
+    - name: myfrontend
+      image: nginx
+      volumeMounts:
+        - mountPath: "/var/www/html"
+          name: mypd
+  volumes:
+    - name: mypd
+      persistentVolumeClaim:
+        claimName: myclaim
+```
+
+---
+
+## 왜 Volume과 Claim을 나눠놨는가?
+
+* **역할 분리**
+
+  * PV: 관리자가 스토리지를 미리 준비하고 제공
+  * PVC: 사용자가 스토리지를 요청
+* **유연성 확보**
+
+  * Pod이 특정 스토리지 구현(EBS, NFS 등)에 의존하지 않음 → Pod은 단순히 PVC만 참조
+  * 스토리지 백엔드를 변경해도 Pod 정의는 수정할 필요 없음
+* **멀티테넌시 지원**
+
+  * 여러 사용자/팀이 PVC를 통해 공용 스토리지 풀(PV)을 안전하게 공유
+* **동적 프로비저닝**
+
+  * PVC 요청이 들어오면, 스토리지 클래스(StorageClass)에 따라 PV가 자동 생성 가능
