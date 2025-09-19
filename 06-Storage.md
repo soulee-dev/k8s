@@ -213,7 +213,7 @@ spec:
 
 ---
 
-## PVC를 Pod에서 사용하는 방법
+### PVC를 Pod에서 사용하는 방법
 
 * Pod → PVC → PV → 실제 스토리지
 * Pod은 직접 PV를 참조하지 않고, PVC를 통해서만 접근
@@ -238,7 +238,7 @@ spec:
 
 ---
 
-## 왜 Volume과 Claim을 나눠놨는가?
+### 왜 Volume과 Claim을 나눠놨는가?
 
 * **역할 분리**
 
@@ -254,3 +254,26 @@ spec:
 * **동적 프로비저닝**
 
   * PVC 요청이 들어오면, 스토리지 클래스(StorageClass)에 따라 PV가 자동 생성 가능
+
+
+## StorageClass
+
+PersistentVolume를 사용할 때, 클라우드 환경에서는 기본적으로 수동으로 스토리지를 생성한 뒤 PersistentVolume에 연결해야 함 → 이를 **Static Provisioning**이라고 함.
+
+**StorageClass**를 사용하면 PVC 요청 시 자동으로 클라우드 리소스를 생성하는 **Dynamic Provisioning**이 가능함.
+
+### 특징
+
+* PVC(PersistentVolumeClaim)를 만들면 StorageClass가 자동으로 해당 클라우드의 디스크/볼륨을 생성하여 바인딩함
+* 프로비저너(`provisioner`)는 클라우드별 드라이버에 따라 다름
+* 클라우드 제공자의 특성에 맞는 `parameters`를 설정할 수 있음 (예: SSD/HDD 타입, 리전, IOPS 등)
+
+### 예시
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: google-storage
+provisioner: kubernetes.io/gce-pd
+```
