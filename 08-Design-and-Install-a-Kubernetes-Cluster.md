@@ -53,3 +53,48 @@
 * **애플리케이션 요구사항**: CPU, Memory, Storage
 * **트래픽**: 예상 부하와 네트워크 요구사항
 
+## Choosing Kubernetes Infrastructure
+
+### 1. Local / Self-Managed 방식
+
+* **Minikube**
+
+  * 단일 노드 클러스터 실행
+  * 주로 로컬 개발 및 테스트 용도
+  * VM에 쿠버네티스 단일 클러스터 배포
+
+* **Kubeadm**
+
+  * 단일/멀티 노드 클러스터 구성 가능
+  * VM/물리 서버 직접 준비 필요
+  * 설치 및 설정을 수동으로 진행
+
+
+### 2. Turnkey Solutions (반자동 배포)
+
+* 특징
+
+  * 사용자가 VM을 프로비저닝
+  * VM 설정 및 클러스터 설치 스크립트 실행
+  * VM 운영 및 유지보수 책임은 사용자
+* 예시
+
+  * **KOPS** (AWS 기반 쿠버네티스 배포)
+  * OpenShift (Red Hat 기반)
+  * Cloud Foundry Container Runtime
+  * VMware Cloud PKS
+  * Vagrant
+
+### 3. Hosted Solutions (Managed Kubernetes)
+
+* 특징
+
+  * 클라우드 제공자가 VM 및 쿠버네티스 클러스터를 관리
+  * 사용자는 애플리케이션 배포와 운영에 집중
+  * 인프라 운영 부담 최소화
+* 예시
+
+  * **GKE** (Google Kubernetes Engine)
+  * **EKS** (AWS Elastic Kubernetes Service)
+  * **AKS** (Azure Kubernetes Service)
+  * OpenShift Online
