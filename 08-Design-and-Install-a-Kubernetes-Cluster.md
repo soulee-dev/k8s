@@ -98,3 +98,51 @@
   * **EKS** (AWS Elastic Kubernetes Service)
   * **AKS** (Azure Kubernetes Service)
   * OpenShift Online
+
+## Configure High Availability (HA)
+
+### 마스터 노드 장애 시
+
+* 기존에 실행 중인 컨테이너는 정상 동작함 (노드와 파드 단위 동작은 유지됨)
+* 새로운 파드 생성/복구 불가 (컨트롤 플레인 동작 불가)
+* `kubectl` 접속 불가 (API 서버 접근 불가)
+* **단일 마스터 환경은 SPOF(Single Point of Failure)** → 반드시 다중 마스터 구성이 필요
+
+### API Server
+
+* Active-Active 모드로 동작 가능
+* 외부에서 접근할 때는 **로드 밸런서**(nginx, HAProxy 등) 앞단 구성 필요
+
+### Controller-Manager / Scheduler
+
+* 동시에 여러 개가 실행될 수 없음 (Active-Standby) > 동시에 실행시 충돌 위험
+* **리더 선출(Leader Election) 메커니즘** 사용
+
+  * 기본 옵션
+
+    * `--leader-elect-lease-duration=15s`
+    * `--leader-elect-renew-deadline=10s`
+    * `--leader-elect-retry-period=2s`
+  * 하나가 리더가 되어 Lock을 획득하고 나머지는 대기
+
+### Etcd
+
+클러스터 상태 저장소 → 고가용성 핵심
+
+* **Stacked topology** (마스터 노드에 etcd 포함)
+
+  * 장점: 설정/관리 용이, 서버 수 적음
+  * 단점: 마스터 장애 시 위험도 증가
+
+* **External etcd topology** (마스터와 분리된 etcd 전용 클러스터)
+
+  * 장점: 장애 내성이 강함, 더 안전
+  * 단점: 구성 복잡, 서버 수 증가
+
+* 설정 예시
+
+  ```
+  --etcd-servers=https://<etcd1>,https://<etcd2>,https://<etcd3>
+  ```
+
+  → 어느 etcd 서버든 읽기/쓰기 가능
